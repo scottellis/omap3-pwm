@@ -1,0 +1,85 @@
+README for omap3-pwm driver
+
+Implements a driver to easily test the PWM outputs of an OMAP3 based Linux
+system from userspace.
+
+Should work with any OMAP3 board, but only tested with Gumstix Overo.
+
+The default PWM used is PWM10. 
+
+There is a gumstix-source-me.txt file that will set up your environment for
+the cross-compilation. It assumes you are using an OE environment as specified
+by the Gumstix setup docs for building an Overo system. You should modify
+or create a similar script for pointing to the build system you are using.
+
+Make sure to modify KERNELDIR so you build the module for the correct kernel.
+
+Also, if you modified your OE temp directory, then also update the OETMP 
+variable in gumstix-source-me.txt.
+
+Follow these steps to build.
+
+$ git clone git://github.com/scottellis/omap3-pwm.git
+$ cd omap3-pwm
+$ <edit> gumstix-source-me.txt
+$ source source-me.txt
+$ make 
+
+Next copy the pwm.ko file to your board.
+
+Once on the system, use insmod to load using the optional frequency parameter.
+The default frequency is 1024 Hz. Use multiples of two with a max of 16384.
+
+root@overo# ls
+pwm.ko
+
+root@overo# insmod pwm.ko
+
+The driver implements a character device interface. When it loads, it will 
+create a /dev/pwm10 entry.
+ 
+Then to issue commands you can use any program that can do file I/O. 
+cat and echo will work. 
+
+root@overo# cat /dev/pwm10
+PWM10 Frequency 1024 Hz Stopped
+
+root@overo# echo 50 > /dev/pwm10
+
+root@overo:~# cat /dev/pwm10
+PWM10 Frequency 1024 Hz Duty Cycle 50%
+
+root@overo:~# echo 80 > /dev/pwm10
+
+root@overo:~# cat /dev/pwm10
+PWM10 Frequency 1024 Hz Duty Cycle 80%
+
+You can put an oscope on pin 28 of the expansion board to see the signal.
+Use pin 15 for ground. Or you can measure the voltage on pin 28 and you'll
+see the duty cycle percentage of 1.8v.
+
+You have to unload and reload the module to change the frequency.
+
+root@overo:~# rmmod pwm  
+
+root@overo:~# insmod pwm.ko frequency=2048
+
+root@overo:~# cat /dev/pwm10
+PWM10 Frequency 2048 Hz Stopped
+
+The driver takes care of muxing the output pin correctly and restores the original
+muxing when it unloads. The default muxing by Gumstix for the PWM pins is to be
+GPIO. 
+
+If you want to change which timer is being used, look at pwm_init().
+
+
+TODO:
+
+1. Register multiple minors and handle multiple PWM timers based on the inode minor.
+
+2. Allow changing frequency while loaded. Not hard, just too lazy to write parse code.
+
+3. Make the build a recipe.
+
+

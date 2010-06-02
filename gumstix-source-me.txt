@@ -1,0 +1,39 @@
+
+if [[ -z "${KERNEL_CROSS_BUILD_ENVIRONMENT_SOURCED}" ]]; then
+
+	# normally OETMP will be ${OVEROTOP}/tmp, but really it is whatever TMPDIR
+	# in ${OVEROTOP}/build/conf/site.conf points to.
+	OETMP=${OVEROTOP}/tmp
+	# OETMP=/gum
+
+	# It would be nice to find a way to pick the current kernel out of the OE config 
+	# Until then, have to manually point this at the kernel source   
+	export KERNELDIR=${OETMP}/work/overo-angstrom-linux-gnueabi/linux-omap3-2.6.32-r72/git
+
+	STAGEDIR=${OETMP}/staging/`uname -m`-linux/
+	STAGEUSRDIR=${STAGEDIR}/usr/
+	CROSSBINDIR=${OETMP}/cross/armv7a/bin
+
+	PATH=${STAGEDIR}/bin:${PATH}
+	PATH=${STAGEDIR}/sbin:${PATH}
+	PATH=${CROSSBINDIR}:${PATH}
+	PATH=${STAGEUSRDIR}/bin:${PATH}
+	PATH=${STAGEUSRDIR}/sbin:${PATH}
+	PATH=${STAGEUSRDIR}/bin/armv7a-angstrom-linux-gnueabi:${PATH}
+	PATH=${STAGEUSRDIR}/bin/overo-angstrom-linux-gnueabi:${PATH}
+
+	unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS MACHINE
+
+	export ARCH="arm"
+	export CROSS_COMPILE="arm-angstrom-linux-gnueabi-"
+	export CC="arm-angstrom-linux-gnueabi-gcc"
+	export LD="arm-angstrom-linux-gnueabi-ld"
+	export STRIP="arm-angstrom-linux-gnueabi-strip"
+
+	export KERNEL_CROSS_BUILD_ENVIRONMENT_SOURCED="true"
+
+	echo "Altered environment for cross building a kernel module with OE tools."
+else
+	echo "Cross build environment already configured."
+fi
+
