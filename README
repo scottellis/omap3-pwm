@@ -73,10 +73,6 @@ GPIO.
 
 If you want to change which timer is being used, look at pwm_init().
 
-I started some documentation on the OMAP3 PWM timers here - 
-
-<a href="http://www.jumpnowtek.com/index.php?option=com_content&view=article&id=56&Itemid=63">Gumstix Overo PWM</a>
-
 TODO:
 
 1. Optionally support all 4 PWM timers simultaneously accessed through
