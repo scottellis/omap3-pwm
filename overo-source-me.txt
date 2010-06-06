@@ -1,26 +1,24 @@
-
 if [[ -z "${KERNEL_CROSS_BUILD_ENVIRONMENT_SOURCED}" ]]; then
+
+	MACHINE=overo
 
 	# normally OETMP will be ${OVEROTOP}/tmp, but really it is whatever TMPDIR
 	# in ${OVEROTOP}/build/conf/site.conf points to.
 	OETMP=${OVEROTOP}/tmp
 	# OETMP=/gum
 
-	# It would be nice to find a way to pick the current kernel out of the OE config 
-	# Until then, have to manually point this at the kernel source   
-	export KERNELDIR=${OETMP}/work/overo-angstrom-linux-gnueabi/linux-omap3-2.6.32-r72/git
-
-	STAGEDIR=${OETMP}/staging/`uname -m`-linux/
-	STAGEUSRDIR=${STAGEDIR}/usr/
+	SYSROOTSDIR=${OETMP}/sysroots
+	STAGEDIR=${SYSROOTSDIR}/`uname -m`-linux
 	CROSSBINDIR=${OETMP}/cross/armv7a/bin
+
+	export KERNELDIR=${SYSROOTSDIR}/${MACHINE}-angstrom-linux-gnueabi/kernel
 
 	PATH=${STAGEDIR}/bin:${PATH}
 	PATH=${STAGEDIR}/sbin:${PATH}
 	PATH=${CROSSBINDIR}:${PATH}
-	PATH=${STAGEUSRDIR}/bin:${PATH}
-	PATH=${STAGEUSRDIR}/sbin:${PATH}
-	PATH=${STAGEUSRDIR}/bin/armv7a-angstrom-linux-gnueabi:${PATH}
-	PATH=${STAGEUSRDIR}/bin/overo-angstrom-linux-gnueabi:${PATH}
+	PATH=${STAGEDIR}/usr/bin:${PATH}
+	PATH=${STAGEDIR}/usr/sbin:${PATH}
+	PATH=${STAGEDIR}/usr/bin/armv7a-angstrom-linux-gnueabi:${PATH}
 
 	unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS MACHINE
 
