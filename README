@@ -7,22 +7,23 @@ Should work with any OMAP3 board, but only tested with Gumstix Overo.
 
 The default PWM used is PWM10. 
 
-There is a gumstix-source-me.txt file that will set up your environment for
-the cross-compilation. It assumes you are using an OE environment as specified
-by the Gumstix setup docs for building an Overo system. You should modify
-or create a similar script for pointing to the build system you are using.
+There is a ${MACHINE}-source-me.txt file that will set up your environment for
+the cross-compilation. It assumes you are using an OE environment and it tries 
+to be generic enough for both userland and kernel/module stuff. 
 
-Make sure to modify KERNELDIR so you build the module for the correct kernel.
+You should modify or create a similar script for pointing to the build system 
+you are using.
 
-Also, if you modified your OE temp directory, then also update the OETMP 
-variable in gumstix-source-me.txt.
+If you modified your OE temp directory, then also update the OETMP variable in 
+the appropriate ${MACHINE}-source-me.txt. I kind of tested overo and beagleboard, 
+but I don't normally use the defaults.
 
-Follow these steps to build.
+Follow these steps to build. Using an overo for the example.
 
 $ git clone git://github.com/scottellis/omap3-pwm.git
 $ cd omap3-pwm
-$ <edit> gumstix-source-me.txt
-$ source source-me.txt
+$ <edit> overo-source-me.txt
+$ source overo-source-me.txt
 $ make 
 
 Next copy the pwm.ko file to your board.
