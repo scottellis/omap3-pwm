@@ -72,7 +72,7 @@ The driver takes care of muxing the output pin correctly and restores the origin
 muxing when it unloads. The default muxing by Gumstix for the PWM pins is to be
 GPIO. 
 
-If you want to change which timer is being used, look at pwm_init().
+For now, if you want to change which timer is being used, look at pwm_init().
 
 TODO:
 
@@ -100,5 +100,25 @@ TODO:
 
 7. Investigate support for the prescaler in the TCLR config.
 
+BEAGLEBOARD Note: The kernel config option CONFIG_OMAP_RESET_CLOCKS is enabled
+in the default beagleboard defconfigs. You'll get an oops using pwm.ko with
+this enabled. This is a kernel power saving feature. You'll need to disable this 
+config option to use this driver. Below is a sample patch for linux-omap-2.6.32's
+defconfig. Adjust for the kernel you are using. Gumstix users already have this
+turned off in default kernels.
+
+diff --git a/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig b/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig
+index cebe1f5..2dad30c 100644
+--- a/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig
++++ b/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig
+@@ -241,7 +241,7 @@ CONFIG_ARCH_OMAP3=y
+ #
+ # CONFIG_OMAP_DEBUG_POWERDOMAIN is not set
+ # CONFIG_OMAP_DEBUG_CLOCKDOMAIN is not set
+-CONFIG_OMAP_RESET_CLOCKS=y
++# CONFIG_OMAP_RESET_CLOCKS is not set
+ # CONFIG_OMAP_MUX is not set
+ CONFIG_OMAP_MCBSP=y
+ CONFIG_OMAP_MBOX_FWK=m
 
 
