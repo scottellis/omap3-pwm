@@ -1,8 +1,9 @@
 Patches to allow PWM control from a Beagleboard.
 
-The default OpenEmbedded HEAD builds kernels with the CONFIG_OMAP_RESET_CLOCKS
-option enabled. This is a power saving feature, but will not allow us to control
-the timers for PWM. The patches disable here disable this. 
+The default OpenEmbedded HEAD builds kernels for the beagleboard with the 
+CONFIG_OMAP_RESET_CLOCKS option enabled. This is a power saving feature, 
+but will not allow us to control the timers for PWM. The patches here disable
+this. 
 
 The current OE HEAD has a virtual/kernel of linux-omap-psp-2.6.32 for the 
 Beagleboard.
