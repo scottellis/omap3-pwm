@@ -1,0 +1,22 @@
+Patches to allow PWM control from a Beagleboard.
+
+The default OpenEmbedded HEAD builds kernels with the CONFIG_OMAP_RESET_CLOCKS
+option enabled. This is a power saving feature, but will not allow us to control
+the timers for PWM. The patches disable here disable this. 
+
+The current OE HEAD has a virtual/kernel of linux-omap-psp-2.6.32 for the 
+Beagleboard.
+
+These patches are here as a convenience only for a short time.
+
+Apply the recipe patch, manually or automatically. It's only a one line change.
+
+Copy the 0100-omap-reset-clocks-disabled.patch to 
+${OETREE}/openembedded/recipes/linux/linux-omap-psp-2.6.32
+where the other patches are.
+
+Then rebuild the kernel and your rootfs and deploy those.
+bitbake -c clean virtual/kernel; bitbake virtual/kernel; bitbake <your-image>
+
+Then rebuild pwm.ko since the kernel config has changed.
+

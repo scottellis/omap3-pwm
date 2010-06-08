@@ -1,0 +1,12 @@
+diff --git a/recipes/linux/linux-omap-psp_2.6.32.bb b/recipes/linux/linux-omap-psp_2.6.32.bb
+index f2351a3..94da6eb 100644
+--- a/recipes/linux/linux-omap-psp_2.6.32.bb
++++ b/recipes/linux/linux-omap-psp_2.6.32.bb
+@@ -56,6 +56,7 @@ SRC_URI = "git://arago-project.org/git/people/sriram/ti-psp-omap.git;protocol=gi
+            file://0042-musb-allow-host-io-without-gadget-module.patch \
+            file://0043-MTD-silence-ecc-errors-on-mtdblock0.patch \
+            file://0044-ARM-OMAP-beagle-every-known-beagle-except-revB-uses-.patch \
++           file://0100-omap-reset-clocks-disabled.patch \
+            file://defconfig"
+ 
+ SRC_URI_append_beagleboard = " file://logo_linux_clut224.ppm \

@@ -1,0 +1,13 @@
+diff --git git/arch/arm/configs/omap3_beagle_defconfig-orig git/arch/arm/configs/omap3_beagle_defconfig
+index adb4f8c..92a7bd4 100644
+--- git/arch/arm/configs/omap3_beagle_defconfig-orig
++++ git/arch/arm/configs/omap3_beagle_defconfig
+@@ -239,7 +239,7 @@ CONFIG_ARCH_OMAP3=y
+ #
+ CONFIG_OMAP_SMARTREFLEX=y
+ # CONFIG_OMAP_SMARTREFLEX_TESTING is not set
+-CONFIG_OMAP_RESET_CLOCKS=y
++# CONFIG_OMAP_RESET_CLOCKS is not set
+ # CONFIG_OMAP_MUX is not set
+ CONFIG_OMAP_MCBSP=y
+ CONFIG_OMAP_MBOX_FWK=m
