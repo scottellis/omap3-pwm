@@ -3,7 +3,8 @@ README for omap3-pwm driver
 Implements a driver to easily test the PWM outputs of an OMAP3 based Linux
 system from userspace.
 
-Should work with any OMAP3 board, but only tested with Gumstix Overo.
+Should work with any OMAP3 board, but only tested with Gumstix Overo and
+Beagleboard.
 
 The default PWM used is PWM10. 
 
