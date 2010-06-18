@@ -3,8 +3,13 @@ README for omap3-pwm driver
 Implements a driver to easily test the PWM outputs of an OMAP3 based Linux
 system from userspace.
 
-Should work with any OMAP3 board, but only tested with Gumstix Overo and
-Beagleboard.
+The TI TRM is the reference for all this. I did put a few notes I collected
+for the OMAP3 PWM timers over here:
+
+http://www.jumpnowtek.com/index.php?option=com_content&view=article&id=56&Itemid=63
+
+The code should work with any OMAP3 board, but I only tested with Gumstix Overo 
+and Beagleboard.
 
 The default PWM used is PWM10. 
 
