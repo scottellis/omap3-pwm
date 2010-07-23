@@ -35,6 +35,7 @@
 #include <asm/io.h>
 #include <asm/uaccess.h>
 #include <linux/moduleparam.h>
+#include <linux/slab.h>
 
 #include "pwm.h"
 
