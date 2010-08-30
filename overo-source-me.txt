@@ -5,20 +5,15 @@ if [[ -z "${KERNEL_CROSS_BUILD_ENVIRONMENT_SOURCED}" ]]; then
 	# normally OETMP will be ${OVEROTOP}/tmp, but really it is whatever TMPDIR
 	# in ${OVEROTOP}/build/conf/site.conf points to.
 	OETMP=${OVEROTOP}/tmp
-	# OETMP=/gum
+	# OETMP=/gum2
 
 	SYSROOTSDIR=${OETMP}/sysroots
-	STAGEDIR=${SYSROOTSDIR}/`uname -m`-linux
-	CROSSBINDIR=${OETMP}/cross/armv7a/bin
+	STAGEDIR=${SYSROOTSDIR}/`uname -m`-linux/usr
 
 	export KERNELDIR=${SYSROOTSDIR}/${MACHINE}-angstrom-linux-gnueabi/kernel
 
 	PATH=${STAGEDIR}/bin:${PATH}
-	PATH=${STAGEDIR}/sbin:${PATH}
-	PATH=${CROSSBINDIR}:${PATH}
-	PATH=${STAGEDIR}/usr/bin:${PATH}
-	PATH=${STAGEDIR}/usr/sbin:${PATH}
-	PATH=${STAGEDIR}/usr/bin/armv7a-angstrom-linux-gnueabi:${PATH}
+	PATH=${STAGEDIR}/armv7a/bin:${PATH}
 
 	unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS MACHINE
 
