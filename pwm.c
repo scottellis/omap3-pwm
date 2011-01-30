@@ -53,7 +53,7 @@
 
 static int frequency = DEFAULT_PWM_FREQUENCY;
 module_param(frequency, int, S_IRUGO);
-MODULE_PARM_DESC(frequency, "The PWM frequency, power of two, max of 16384");
+MODULE_PARM_DESC(frequency, "the pwm frequency");
 
 
 #define USER_BUFF_SIZE	128
@@ -128,17 +128,10 @@ static int set_pwm_frequency(void)
 		return -1;
 	}
 
-	if (frequency < 0) {
+	if (frequency <= 0)
 		frequency = DEFAULT_PWM_FREQUENCY;
-	} else {
-		/* only powers of two, for simplicity */
-		frequency &= ~0x01;
-
-		if (frequency > (pwm_dev.gpt.input_freq / 2)) 
-			frequency = pwm_dev.gpt.input_freq / 2;
-		else if (frequency == 0)
-			frequency = DEFAULT_PWM_FREQUENCY;
-	}
+	else if (frequency > (pwm_dev.gpt.input_freq / 2)) 
+		frequency = pwm_dev.gpt.input_freq / 2;
 
 	/* PWM_FREQ = 32768 / ((0xFFFF FFFF - TLDR) + 1) */
 	pwm_dev.gpt.tldr = 0xFFFFFFFF - ((pwm_dev.gpt.input_freq / frequency) - 1);
