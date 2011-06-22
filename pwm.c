@@ -25,6 +25,18 @@
  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+/*
+ Modification summary:
+
+ Original version by Scott Ellis
+
+ Updated by Jack Elston to support all 4 hardware PWM signal generators
+ and create a separate /dev entry for individual control.
+
+ Updated by Curt Olson to support smaller granularity clock on PWM 10 & 11
+ (based on Scott Ellis's older pulse.c code)
+*/
+
 #include <linux/init.h> 
 #include <linux/module.h>
 #include <linux/device.h>
@@ -42,6 +54,9 @@
 /* default frequency of 1 kHz */
 #define DEFAULT_TLDR	0xFFFFFFE0
 
+/* default frequency of 50 Hz */
+//#define DEFAULT_TLDR	0xFFFFFC9E
+
 /* default 50% duty cycle */
 /* TMAR = (0xFFFFFFFF - ((0xFFFFFFFF - (DEFAULT_TLDR + 1)) / 2)) */
 #define DEFAULT_TMAR	0xFFFFFFEF
@@ -49,11 +64,11 @@
 /* default TCLR is off state */
 #define DEFAULT_TCLR (GPT_TCLR_PT | GPT_TCLR_TRG_OVFL_MATCH | GPT_TCLR_CE | GPT_TCLR_AR) 
 
-#define DEFAULT_PWM_FREQUENCY 1024
+#define DEFAULT_PWM_FREQUENCY 50
 
 static int frequency = DEFAULT_PWM_FREQUENCY;
 module_param(frequency, int, S_IRUGO);
-MODULE_PARM_DESC(frequency, "the pwm frequency");
+MODULE_PARM_DESC(frequency, "The PWM frequency, power of two, max of 16384");
 
 
 #define USER_BUFF_SIZE	128
@@ -77,12 +92,14 @@ struct pwm_dev {
 	struct semaphore sem;
 	struct gpt gpt;
 	char *user_buff;
+	u8 number;
 };
 
-static struct pwm_dev pwm_dev;
+#define NUM_PWM_TIMERS 4
+static struct pwm_dev pwm_dev[NUM_PWM_TIMERS];
 
 
-static int init_mux(void)
+static int init_mux(int channel)
 {
 	void __iomem *base;
 
@@ -92,18 +109,18 @@ static int init_mux(void)
 		return -1;
 	}
 
-	pwm_dev.gpt.old_mux = ioread16(base + pwm_dev.gpt.mux_offset);
-	iowrite16(PWM_ENABLE_MUX, base + pwm_dev.gpt.mux_offset);
+	pwm_dev[channel].gpt.old_mux = ioread16(base + pwm_dev[channel].gpt.mux_offset);
+	iowrite16(PWM_ENABLE_MUX, base + pwm_dev[channel].gpt.mux_offset);
 	iounmap(base);	
 
 	return 0;
 }
 
-static int restore_mux(void)
+static int restore_mux(int channel)
 {
 	void __iomem *base;
 
-	if (pwm_dev.gpt.old_mux) {
+	if (pwm_dev[channel].gpt.old_mux) {
 		base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
 	
 		if (!base) {
@@ -111,66 +128,115 @@ static int restore_mux(void)
 			return -1;
 		}
 
-		iowrite16(pwm_dev.gpt.old_mux, base + pwm_dev.gpt.mux_offset);
+		iowrite16(pwm_dev[channel].gpt.old_mux, base + pwm_dev[channel].gpt.mux_offset);
 		iounmap(base);	
 	}
 
 	return 0;
 }
 
-static int set_pwm_frequency(void)
+/* Change PWM10 and PWM11 to use CM_SYS_CLK rather then CM_32K_CLK */
+static int use_sys_clk(void)
+{
+	void __iomem *base;
+	u32 val;
+
+	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
+
+	if (!base) {
+		printk(KERN_ALERT "use_sys_clk(): ioremap() failed\n");
+		return -1;
+	}
+
+	val = ioread32(base + CM_CLKSEL_CORE_OFFSET);
+	val |= 0xc0;
+	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
+	iounmap(base);
+
+	return 0;
+}
+
+/* Restore PWM10 and PWM11 to using the CM_32K_CLK */
+static int restore_32k_clk(void)
+{
+	void __iomem *base;
+	u32 val;
+
+	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
+
+	if (!base) {
+		printk(KERN_ALERT "restore_32k_clk(): ioremap() failed\n");
+		return -1;
+	}
+
+	val = ioread32(base + CM_CLKSEL_CORE_OFFSET);
+	val &= ~0xc0;
+	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
+	iounmap(base);
+
+	return 0;
+}
+
+static int set_pwm_frequency(int channel)
 {
 	void __iomem *base;
 
-	base = ioremap(pwm_dev.gpt.gpt_base, GPT_REGS_PAGE_SIZE);
+	base = ioremap(pwm_dev[channel].gpt.gpt_base, GPT_REGS_PAGE_SIZE);
 	if (!base) {
 		printk(KERN_ALERT "set_pwm_frequency(): ioremap failed\n");
 		return -1;
 	}
 
-	if (frequency <= 0)
+	if (frequency < 0) {
 		frequency = DEFAULT_PWM_FREQUENCY;
-	else if (frequency > (pwm_dev.gpt.input_freq / 2)) 
-		frequency = pwm_dev.gpt.input_freq / 2;
+	} else {
+		/* only powers of two, for simplicity */
+		frequency &= ~0x01;
+
+		if (frequency > (pwm_dev[channel].gpt.input_freq / 2)) 
+			frequency = pwm_dev[channel].gpt.input_freq / 2;
+		else if (frequency == 0)
+			frequency = DEFAULT_PWM_FREQUENCY;
+	}
 
 	/* PWM_FREQ = 32768 / ((0xFFFF FFFF - TLDR) + 1) */
-	pwm_dev.gpt.tldr = 0xFFFFFFFF - ((pwm_dev.gpt.input_freq / frequency) - 1);
+	pwm_dev[channel].gpt.tldr = 0xFFFFFFFF - ((pwm_dev[channel].gpt.input_freq / frequency) - 1);
 
 	/* just for convenience */	
-	pwm_dev.gpt.num_freqs = 0xFFFFFFFE - pwm_dev.gpt.tldr;	
+	pwm_dev[channel].gpt.num_freqs = 0xFFFFFFFE - pwm_dev[channel].gpt.tldr;	
 
-	iowrite32(pwm_dev.gpt.tldr, base + GPT_TLDR);
+	iowrite32(pwm_dev[channel].gpt.tldr, base + GPT_TLDR);
 
 	/* initialize TCRR to TLDR, have to start somewhere */
-	iowrite32(pwm_dev.gpt.tldr, base + GPT_TCRR);
+	iowrite32(pwm_dev[channel].gpt.tldr, base + GPT_TCRR);
 
 	iounmap(base);
 
 	return 0;
 }
 
-static int pwm_off(void)
+static int pwm_off(int channel)
 {
 	void __iomem *base;
 
-	base = ioremap(pwm_dev.gpt.gpt_base, GPT_REGS_PAGE_SIZE);
+	base = ioremap(pwm_dev[channel].gpt.gpt_base, GPT_REGS_PAGE_SIZE);
 	if (!base) {
 		printk(KERN_ALERT "pwm_off(): ioremap failed\n");
 		return -1;
 	}
 
-	pwm_dev.gpt.tclr &= ~GPT_TCLR_ST;
-	iowrite32(pwm_dev.gpt.tclr, base + GPT_TCLR); 
+	pwm_dev[channel].gpt.tclr &= ~GPT_TCLR_ST;
+	iowrite32(pwm_dev[channel].gpt.tclr, base + GPT_TCLR); 
 	iounmap(base);
 
 	return 0;
 }
 
-static int pwm_on(void)
+static int pwm_on(int channel)
 {
 	void __iomem *base;
 
-	base = ioremap(pwm_dev.gpt.gpt_base, GPT_REGS_PAGE_SIZE);
+	base = ioremap(pwm_dev[channel].gpt.gpt_base, GPT_REGS_PAGE_SIZE);
 
 	if (!base) {
 		printk(KERN_ALERT "pwm_on(): ioremap failed\n");
@@ -178,36 +244,72 @@ static int pwm_on(void)
 	}
 
 	/* set the duty cycle */
-	iowrite32(pwm_dev.gpt.tmar, base + GPT_TMAR);
+	iowrite32(pwm_dev[channel].gpt.tmar, base + GPT_TMAR);
 	
 	/* now turn it on */
-	pwm_dev.gpt.tclr = ioread32(base + GPT_TCLR);
-	pwm_dev.gpt.tclr |= GPT_TCLR_ST;
-	iowrite32(pwm_dev.gpt.tclr, base + GPT_TCLR); 
+	pwm_dev[channel].gpt.tclr = ioread32(base + GPT_TCLR);
+	pwm_dev[channel].gpt.tclr |= GPT_TCLR_ST;
+	iowrite32(pwm_dev[channel].gpt.tclr, base + GPT_TCLR); 
 	iounmap(base);
 
 	return 0;
 }
 
-static int set_duty_cycle(unsigned int duty_cycle) 
+static int set_us_pulse(unsigned int us_pulse, int channel) 
 {
-	unsigned int new_tmar;
+	u32 new_tmar;
+	u32 factor;
 
-	pwm_off();
+	pwm_off(channel);
 
-	if (duty_cycle == 0)
+	if (us_pulse == 0)
 		return 0;
+
+	printk("us pulse rx=%d frequency=%d num_freq=%d ", us_pulse, frequency, pwm_dev[channel].gpt.num_freqs);
  
-	new_tmar = (duty_cycle * pwm_dev.gpt.num_freqs) / 100;
+	/* new_tmar is the duty cycle, basically 0 - num_freqs maps to
+	   0% - 100% duty cycle.
+
+	   So (us_pulse/1000000) * frequency * num_freq = tmar but we
+	   have to worry about integer overflow (INT_MAX=4294967295u)
+	   so I precompute 1000000 / freq and then divide by that
+	   number to stay inside uint32 limits.
+
+	   Hack: gpt.num_freqs is 259998 for the 13Mhz timer.  This
+	   can be divided evenly by 2, 3, 17, and 2549.  If I
+	   predivide by 259998 by 2, I think I can specify the input
+	   pulse length in us*10 and still stay inside u32 integer
+	   bounds.
+	*/
+
+	/* original code that overflows a uint32 with us input:
+	   new_tmar = (us_pulse * frequency * pwm_dev[channel].gpt.num_freqs)
+	              / 1000000;
+	*/
+
+	/* refactored formula to not overflow with us input:
+	   factor = 1000000 / frequency;
+	   new_tmar = (us_pulse * pwm_dev[channel].gpt.num_freqs) / factor;
+	*/
+
+	/* further observation that we can divide both gpt.num_freq
+	   and 1000000 by 2 which makes the intermediate math even
+	   smaller.  This allows us to specify input in us*10 for
+	   1/10us accuracy ... woot woot!  Note, forumula is updated
+	   to expect us*10 input*/
+	factor = 10000000 / (frequency * 2);
+	new_tmar = (us_pulse * (pwm_dev[channel].gpt.num_freqs / 2)) / factor;
+
+	printk("new tmar: %d\n", new_tmar);
 
 	if (new_tmar < 1) 
 		new_tmar = 1;
-	else if (new_tmar > pwm_dev.gpt.num_freqs)
-		new_tmar = pwm_dev.gpt.num_freqs;
+	else if (new_tmar > pwm_dev[channel].gpt.num_freqs)
+		new_tmar = pwm_dev[channel].gpt.num_freqs;
 		
-	pwm_dev.gpt.tmar = pwm_dev.gpt.tldr + new_tmar;
+	pwm_dev[channel].gpt.tmar = pwm_dev[channel].gpt.tldr + new_tmar;
 	
-	return pwm_on();
+	return pwm_on(channel);
 }
 
 static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
@@ -217,6 +319,8 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 	unsigned int duty_cycle;
 	ssize_t error = 0;
 
+	struct pwm_dev * pwm_devp = filp->private_data;
+
 	if (!buff) 
 		return -EFAULT;
 
@@ -224,29 +328,29 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 	if (*offp > 0) 
 		return 0;
 
-	if (down_interruptible(&pwm_dev.sem)) 
+	if (down_interruptible(&pwm_devp->sem)) 
 		return -ERESTARTSYS;
 
-	if (pwm_dev.gpt.tclr & GPT_TCLR_ST) {
-		duty_cycle = (100 * (pwm_dev.gpt.tmar - pwm_dev.gpt.tldr)) 
-				/ pwm_dev.gpt.num_freqs;
+	if (pwm_devp->gpt.tclr & GPT_TCLR_ST) {
+		duty_cycle = (100 * (pwm_devp->gpt.tmar - pwm_devp->gpt.tldr)) 
+				/ pwm_devp->gpt.num_freqs;
 
-		snprintf(pwm_dev.user_buff, USER_BUFF_SIZE,
+		snprintf(pwm_devp->user_buff, USER_BUFF_SIZE,
 				"PWM%d Frequency %u Hz Duty Cycle %u%%\n",
-				pwm_dev.gpt.timer_num, frequency, duty_cycle);
+				pwm_devp->gpt.timer_num, frequency, duty_cycle);
 	}
 	else {
-		snprintf(pwm_dev.user_buff, USER_BUFF_SIZE,
+		snprintf(pwm_devp->user_buff, USER_BUFF_SIZE,
 				"PWM%d Frequency %u Hz Stopped\n",
-				pwm_dev.gpt.timer_num, frequency);
+				pwm_devp->gpt.timer_num, frequency);
 	}
 
-	len = strlen(pwm_dev.user_buff);
+	len = strlen(pwm_devp->user_buff);
  
 	if (len + 1 < count) 
 		count = len + 1;
 
-	if (copy_to_user(buff, pwm_dev.user_buff, count))  {
+	if (copy_to_user(buff, pwm_devp->user_buff, count))  {
 		printk(KERN_ALERT "pwm_read(): copy_to_user() failed\n");
 		error = -EFAULT;
 	}
@@ -255,7 +359,7 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 		error = count;
 	}
 
-	up(&pwm_dev.sem);
+	up(&pwm_devp->sem);
 
 	return error;	
 }
@@ -264,10 +368,12 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 			size_t count, loff_t *offp)
 {
 	size_t len;
-	unsigned int duty_cycle;
+	unsigned int us_pulse;
 	ssize_t error = 0;
+
+	struct pwm_dev * pwm_devp = filp->private_data;
 	
-	if (down_interruptible(&pwm_dev.sem)) 
+	if (down_interruptible(&pwm_devp->sem)) 
 		return -ERESTARTSYS;
 
 	if (!buff || count < 1) {
@@ -282,17 +388,17 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 	else
 		len = count;
 		
-	memset(pwm_dev.user_buff, 0, 16);
+	memset(pwm_devp->user_buff, 0, 16);
 
-	if (copy_from_user(pwm_dev.user_buff, buff, len)) {
+	if (copy_from_user(pwm_devp->user_buff, buff, len)) {
 		printk(KERN_ALERT "pwm_write(): copy_from_user() failed\n"); 
 		error = -EFAULT; 	
 		goto pwm_write_done;
 	}
 
-	duty_cycle = simple_strtoul(pwm_dev.user_buff, NULL, 0);
+	us_pulse = simple_strtoul(pwm_devp->user_buff, NULL, 0);
 
-	set_duty_cycle(duty_cycle);
+	set_us_pulse(us_pulse,pwm_devp->number);
 
 	/* pretend we ate it all */
 	*offp += count;
@@ -301,7 +407,7 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 
 pwm_write_done:
 
-	up(&pwm_dev.sem);
+	up(&pwm_devp->sem);
 	
 	return error;
 }
@@ -310,23 +416,27 @@ static int pwm_open(struct inode *inode, struct file *filp)
 {
 	int error = 0;
 
-	if (down_interruptible(&pwm_dev.sem)) 
+	struct pwm_dev * pwm_devp;
+	pwm_devp = container_of(inode->i_cdev, struct pwm_dev, cdev);
+	filp->private_data = pwm_devp;
+
+	if (down_interruptible(&pwm_devp->sem)) 
 		return -ERESTARTSYS;
 
-	if (pwm_dev.gpt.old_mux == 0) {
-		if (init_mux())  
+	if (pwm_devp->gpt.old_mux == 0) {
+		if (init_mux(pwm_devp->number))  
 			error = -EIO;
-		else if (set_pwm_frequency()) 
+		else if (set_pwm_frequency(pwm_devp->number)) 
 			error = -EIO;
 	}
 
-	if (!pwm_dev.user_buff) {
-		pwm_dev.user_buff = kmalloc(USER_BUFF_SIZE, GFP_KERNEL);
-		if (!pwm_dev.user_buff)
+	if (!pwm_devp->user_buff) {
+		pwm_devp->user_buff = kmalloc(USER_BUFF_SIZE, GFP_KERNEL);
+		if (!pwm_devp->user_buff)
 			error = -ENOMEM;
 	}
 
-	up(&pwm_dev.sem);
+	up(&pwm_devp->sem);
 
 	return error;	
 }
@@ -338,11 +448,11 @@ static struct file_operations pwm_fops = {
 	.open = pwm_open,
 };
 
-static int __init pwm_init_cdev(void)
+static int __init pwm_init_cdev(int channel)
 {
 	int error;
 
-	error = alloc_chrdev_region(&pwm_dev.devt, pwm_dev.gpt.timer_num, 
+	error = alloc_chrdev_region(&pwm_dev[channel].devt, pwm_dev[channel].gpt.timer_num, 
 					1, "pwm");
 
 	if (error < 0) {
@@ -351,86 +461,134 @@ static int __init pwm_init_cdev(void)
 		return -1;
 	}
 
-	cdev_init(&pwm_dev.cdev, &pwm_fops);
-	pwm_dev.cdev.owner = THIS_MODULE;
+	cdev_init(&pwm_dev[channel].cdev, &pwm_fops);
+	pwm_dev[channel].cdev.owner = THIS_MODULE;
 	
-	error = cdev_add(&pwm_dev.cdev, pwm_dev.devt, 1);
+	error = cdev_add(&pwm_dev[channel].cdev, pwm_dev[channel].devt, 1);
 	if (error) {
 		printk(KERN_ALERT "cdev_add() failed: %d\n", error);
-		unregister_chrdev_region(pwm_dev.devt, 1);
+		unregister_chrdev_region(pwm_dev[channel].devt, 1);
 		return -1;
 	}	
 
 	return 0;
 }
 
-static int __init pwm_init_class(void)
+static int __init pwm_init_class(int channel)
 {
-	pwm_dev.class = class_create(THIS_MODULE, "pwm");
+	if(channel == 0) //FIXME this is a hack
+		pwm_dev[channel].class = class_create(THIS_MODULE, "pwm");
+	else
+		pwm_dev[channel].class = pwm_dev[0].class;
 
-	if (!pwm_dev.class) {
+	if (!pwm_dev[channel].class) {
 		printk(KERN_ALERT "class_create() failed\n");
 		return -1;
 	}
 
-	if (!device_create(pwm_dev.class, NULL, pwm_dev.devt, NULL, "pwm%d", 
-				MINOR(pwm_dev.devt))) {
+	if (!device_create(pwm_dev[channel].class, NULL, pwm_dev[channel].devt, NULL, "pwm%d", 
+				MINOR(pwm_dev[channel].devt))) {
 		printk(KERN_ALERT "device_create(..., pwm) failed\n");
-		class_destroy(pwm_dev.class);
+		class_destroy(pwm_dev[channel].class);
 		return -1;
 	}
 
 	return 0;
 }
  
+static int pulse_init_timers(void)
+{
+	int i;
+
+	if (use_sys_clk()) 
+	  return -1;
+	
+	for (i = 0; i < NUM_PWM_TIMERS; i++) 
+	  set_us_pulse(1500, i);
+
+	return 0;
+}
+
 static int __init pwm_init(void)
 {
-	int error = 0;
+	int i,error = 0;
 
 	memset(&pwm_dev, 0, sizeof(struct pwm_dev));
 
 	/* change these 4 values to use a different PWM */
-	pwm_dev.gpt.timer_num = 10;
-	pwm_dev.gpt.mux_offset = GPT10_MUX_OFFSET;
-	pwm_dev.gpt.gpt_base = PWM10_CTL_BASE;
-	pwm_dev.gpt.input_freq = CLK_32K_FREQ;
+	pwm_dev[0].gpt.timer_num = 8;
+	pwm_dev[1].gpt.timer_num = 9;
+	pwm_dev[2].gpt.timer_num = 10;
+	pwm_dev[3].gpt.timer_num = 11;
 
-	pwm_dev.gpt.tldr = DEFAULT_TLDR;
-	pwm_dev.gpt.tmar = DEFAULT_TMAR;
-	pwm_dev.gpt.tclr = DEFAULT_TCLR;
+	pwm_dev[0].number = 0;
+	pwm_dev[1].number = 1;
+	pwm_dev[2].number = 2;
+	pwm_dev[3].number = 3;
 
-	sema_init(&pwm_dev.sem, 1);
+	pwm_dev[0].gpt.mux_offset = GPT8_MUX_OFFSET;
+	pwm_dev[0].gpt.gpt_base = PWM8_CTL_BASE;
+	pwm_dev[0].gpt.input_freq = CLK_SYS_FREQ;
 
-	if (pwm_init_cdev())
-		goto init_fail;
+	pwm_dev[1].gpt.mux_offset = GPT9_MUX_OFFSET;
+	pwm_dev[1].gpt.gpt_base = PWM9_CTL_BASE;
+	pwm_dev[1].gpt.input_freq = CLK_SYS_FREQ;
 
-	if (pwm_init_class())
-		goto init_fail_2;
+	pwm_dev[2].gpt.mux_offset = GPT10_MUX_OFFSET;
+	pwm_dev[2].gpt.gpt_base = PWM10_CTL_BASE;
+	pwm_dev[2].gpt.input_freq = CLK_SYS_FREQ;
+
+	pwm_dev[3].gpt.mux_offset = GPT11_MUX_OFFSET;
+	pwm_dev[3].gpt.gpt_base = PWM11_CTL_BASE;
+	pwm_dev[3].gpt.input_freq = CLK_SYS_FREQ;
+
+	for(i=0;i<NUM_PWM_TIMERS;i++) {
+		pwm_dev[i].gpt.tldr = DEFAULT_TLDR;
+		pwm_dev[i].gpt.tmar = DEFAULT_TMAR;
+		pwm_dev[i].gpt.tclr = DEFAULT_TCLR;
+
+		sema_init(&pwm_dev[i].sem, 1);
+
+		if (pwm_init_cdev(i))
+			return error;
+
+		if (pwm_init_class(i)) {
+			cdev_del(&pwm_dev[i].cdev);
+			unregister_chrdev_region(pwm_dev[i].devt, 1);
+			return error;
+		}
+	}
+
+	if (pulse_init_timers()) {
+	  for(i=0;i<NUM_PWM_TIMERS;i++) {
+	    device_destroy(pwm_dev[i].class, pwm_dev[i].devt);
+	    class_destroy(pwm_dev[i].class);
+	  }
+	  return error;
+	}
 
 	return 0;
-
-init_fail_2:
-	cdev_del(&pwm_dev.cdev);
-	unregister_chrdev_region(pwm_dev.devt, 1);
-
-init_fail:
-	return error;
 }
 module_init(pwm_init);
 
 static void __exit pwm_exit(void)
 {
-	device_destroy(pwm_dev.class, pwm_dev.devt);
-	class_destroy(pwm_dev.class);
+	int i;
+	for(i=0;i<NUM_PWM_TIMERS;i++) {
+		device_destroy(pwm_dev[i].class, pwm_dev[i].devt);
 
-	cdev_del(&pwm_dev.cdev);
-	unregister_chrdev_region(pwm_dev.devt, 1);
+		cdev_del(&pwm_dev[i].cdev);
+		unregister_chrdev_region(pwm_dev[i].devt, 1);
 
-	pwm_off();
-	restore_mux();
+		pwm_off(i);
+		restore_mux(i);
 
-	if (pwm_dev.user_buff)
-		kfree(pwm_dev.user_buff);
+		restore_32k_clk();
+
+		if (pwm_dev[i].user_buff)
+			kfree(pwm_dev[i].user_buff);
+	}
+	class_destroy(pwm_dev[0].class);
 }
 module_exit(pwm_exit);
 
