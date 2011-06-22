@@ -15,7 +15,7 @@ and Beagleboard.
 The [master] branch of this project only implements one PWM channel. The default
 is PWM10. 
 
-The [four-channel] branch of the project implements all for PWM channels with
+The [four-channel] branch of the project implements all 4 PWM channels each with
 their own char dev node. 
 
 There is a ${MACHINE}-source-me.txt file that will set up your environment for
@@ -105,18 +105,18 @@ config option to use this driver. Below is a sample patch for linux-omap-2.6.32'
 defconfig. Adjust for the kernel you are using. Gumstix users already have this
 turned off in default kernels.
 
-diff --git a/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig b/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig
-index cebe1f5..2dad30c 100644
---- a/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig
-+++ b/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig
-@@ -241,7 +241,7 @@ CONFIG_ARCH_OMAP3=y
- #
- # CONFIG_OMAP_DEBUG_POWERDOMAIN is not set
- # CONFIG_OMAP_DEBUG_CLOCKDOMAIN is not set
--CONFIG_OMAP_RESET_CLOCKS=y
-+# CONFIG_OMAP_RESET_CLOCKS is not set
- # CONFIG_OMAP_MUX is not set
- CONFIG_OMAP_MCBSP=y
- CONFIG_OMAP_MBOX_FWK=m
+	diff --git a/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig b/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig
+	index cebe1f5..2dad30c 100644
+	--- a/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig
+	+++ b/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig
+	@@ -241,7 +241,7 @@ CONFIG_ARCH_OMAP3=y
+	 #
+	 # CONFIG_OMAP_DEBUG_POWERDOMAIN is not set
+	 # CONFIG_OMAP_DEBUG_CLOCKDOMAIN is not set
+	-CONFIG_OMAP_RESET_CLOCKS=y
+	+# CONFIG_OMAP_RESET_CLOCKS is not set
+	 # CONFIG_OMAP_MUX is not set
+	 CONFIG_OMAP_MCBSP=y
+	 CONFIG_OMAP_MBOX_FWK=m
 
 
