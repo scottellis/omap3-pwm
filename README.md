@@ -9,6 +9,11 @@ for the OMAP3 PWM timers over here:
 
 http://www.jumpnowtek.com/index.php?option=com_content&view=article&id=56&Itemid=63
 
+Curtis Olson, a co-author of this code, has a relevant PWM article here
+
+http://gallinazo.flightgear.org/technology/gumstix-overo-rc-servos-and-pwm-signal-generation/
+
+
 The code should work with any OMAP3 board, but I only tested with Gumstix Overo 
 and Beagleboard.
 
