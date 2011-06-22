@@ -1,4 +1,5 @@
-README for omap3-pwm driver
+  omap3 pwm driver
+=======
 
 Implements a driver to easily test the PWM outputs of an OMAP3 based Linux
 system from userspace.
@@ -11,7 +12,11 @@ http://www.jumpnowtek.com/index.php?option=com_content&view=article&id=56&Itemid
 The code should work with any OMAP3 board, but I only tested with Gumstix Overo 
 and Beagleboard.
 
-The default PWM used is PWM10. 
+The [master] branch of this project only implements one PWM channel. The default
+is PWM10. 
+
+The [four-channel] branch of the project implements all for PWM channels with
+their own char dev node. 
 
 There is a ${MACHINE}-source-me.txt file that will set up your environment for
 the cross-compilation. It assumes you are using an OE environment and it tries 
@@ -26,21 +31,32 @@ but I don't normally use the defaults.
 
 Follow these steps to build. Using an overo for the example.
 
-$ git clone git://github.com/scottellis/omap3-pwm.git
-$ cd omap3-pwm
-$ <edit> overo-source-me.txt
-$ source overo-source-me.txt
-$ make 
+	$ git clone git://github.com/scottellis/omap3-pwm.git
+	$ cd omap3-pwm
+
+If you want to build the [four-channel] branch use git to check it out now.
+
+	$ git checkout -b four-channel origin/four-channel
+
+Then
+
+	$ <edit> overo-source-me.txt
+	$ source overo-source-me.txt
+	$ make 
 
 Next copy the pwm.ko file to your board.
+
+These final instructions apply to the [master] branch version of the driver.
+
+The [four-channel] instruction are coming soon.
 
 Once on the system, use insmod to load using the optional frequency parameter.
 The default frequency is 1024 Hz. Use multiples of two with a max of 16384.
 
-root@overo# ls
-pwm.ko
+	root@overo# ls
+	pwm.ko
 
-root@overo# insmod pwm.ko
+	root@overo# insmod pwm.ko
 
 The driver implements a character device interface. When it loads, it will 
 create a /dev/pwm10 entry.
@@ -48,18 +64,18 @@ create a /dev/pwm10 entry.
 Then to issue commands you can use any program that can do file I/O. 
 cat and echo will work. 
 
-root@overo# cat /dev/pwm10
-PWM10 Frequency 1024 Hz Stopped
+	root@overo# cat /dev/pwm10
+	PWM10 Frequency 1024 Hz Stopped
 
-root@overo# echo 50 > /dev/pwm10
+	root@overo# echo 50 > /dev/pwm10
 
-root@overo:~# cat /dev/pwm10
-PWM10 Frequency 1024 Hz Duty Cycle 50%
+	root@overo:~# cat /dev/pwm10
+	PWM10 Frequency 1024 Hz Duty Cycle 50%
 
-root@overo:~# echo 80 > /dev/pwm10
+	root@overo:~# echo 80 > /dev/pwm10
 
-root@overo:~# cat /dev/pwm10
-PWM10 Frequency 1024 Hz Duty Cycle 80%
+	root@overo:~# cat /dev/pwm10
+	PWM10 Frequency 1024 Hz Duty Cycle 80%
 
 You can put an oscope on pin 28 of the expansion board to see the signal.
 Use pin 15 for ground. Or you can measure the voltage on pin 28 and you'll
@@ -67,12 +83,12 @@ see the duty cycle percentage of 1.8v.
 
 You have to unload and reload the module to change the frequency.
 
-root@overo:~# rmmod pwm  
+	root@overo:~# rmmod pwm  
 
-root@overo:~# insmod pwm.ko frequency=2048
+	root@overo:~# insmod pwm.ko frequency=2048
 
-root@overo:~# cat /dev/pwm10
-PWM10 Frequency 2048 Hz Stopped
+	root@overo:~# cat /dev/pwm10
+	PWM10 Frequency 2048 Hz Stopped
 
 The driver takes care of muxing the output pin correctly and restores the original
 muxing when it unloads. The default muxing by Gumstix for the PWM pins is to be
@@ -80,31 +96,7 @@ GPIO.
 
 For now, if you want to change which timer is being used, look at pwm_init().
 
-TODO:
 
-1. Optionally support all 4 PWM timers simultaneously accessed through
-   /dev/pwm8, /dev/pwm9, etc... Maybe on driver load a module arg could
-   specify which timers it should take control of. Requires adding some
-   minors and some bookkeeping in the f_op calls. 
-
-2. Support changing the output frequency without reloading the driver.
-   This will require putting some minimal command parsing in the write
-   function to distinguish duty-cycle commands from frequency change
-   commands.
-
-3. Support switching PWM10 and 11 to use the 13MHz clock as FCLK
-   instead of the default 32kHz clock if the user chooses. This gives
-   more granularity for duty-cycle adjustments. It might be sufficient
-   to support this only on driver load.
-
-4. Allow specifying a positive or negative pulse (the TCLR SCPWM bit).
-
-5. The outputs were for experimentation. I'd probably change them to
-   be a little terser, more machine friendly.
-
-6. Investigate one-shot mode
-
-7. Investigate support for the prescaler in the TCLR config.
 
 BEAGLEBOARD Note: The kernel config option CONFIG_OMAP_RESET_CLOCKS is enabled
 in the default beagleboard defconfigs. You'll get an oops using pwm.ko with
