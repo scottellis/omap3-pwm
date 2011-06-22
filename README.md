@@ -7,7 +7,7 @@ system from userspace.
 The TI TRM is the reference for all this. I did put a few notes I collected
 for the OMAP3 PWM timers over here:
 
-[http://www.jumpnowtek.com/index.php?option=com_content&view=article&id=56&Itemid=63 http://www.jumpnowtek.com "Gumstix PWM"]
+[http://www.jumpnowtek.com/index.php?option=com_content&view=article&id=56&Itemid=63 Gumstix PWM]
 
 Curtis Olson, a co-author of this code, has a relevant PWM article here
 
