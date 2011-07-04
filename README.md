@@ -1,15 +1,19 @@
   omap3 pwm driver
 =======
 
-Implements a driver to easily test the PWM outputs of an OMAP3 based Linux
-system from userspace.
+A driver for the PWM timers of an OMAP3 based Linux system exposing a simple
+char dev interface to userland.
 
-The TI TRM is the reference for all this. I did put a few notes I collected
-for the OMAP3 PWM timers over here:
+Jack Elston and Curtis Olson are coathors of this code. They are responsible for
+the [four-channel] branch of this project.
+
+The TI TRM is the primary reference for the code. 
+
+I put up some of my notes for the OMAP3 PWM timers here:
 
 http://www.jumpnowtek.com/index.php?option=com_content&view=article&id=56&Itemid=63
 
-Curtis Olson, a co-author of this code, has a relevant PWM article here
+And Curtis Olson has a more general PWM article here:
 
 http://gallinazo.flightgear.org/technology/gumstix-overo-rc-servos-and-pwm-signal-generation/
 
