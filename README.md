@@ -27,6 +27,10 @@ is PWM10.
 The [four-channel] branch of the project implements all 4 PWM channels each with
 their own char dev node. 
 
+The [explicit-clk-enable] branch is for 2.6.39 kernels and later. Previous kernels
+had the PWM source clocks enabled by default if CONFIG_OMAP_RESET_CLOCKS was not 
+enabled. No longer, so the driver code now does it explicitly.
+
 There is a ${MACHINE}-source-me.txt file that will set up your environment for
 the cross-compilation. It assumes you are using an OE environment and it tries 
 to be generic enough for both userland and kernel/module stuff. 
