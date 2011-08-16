@@ -77,7 +77,6 @@ struct pwm_dev {
 	struct cdev cdev;
 	struct class *class;
 	struct semaphore sem;
-	struct clk *gpt_clk;
 	struct gpt gpt;
 	char *user_buff;
 };
@@ -314,7 +313,7 @@ static int pwm_enable_clock(void)
 {
 	char id[16];
 
-	if (pwm_dev.gpt_clk)
+	if (pwm_dev.gpt.clk)
 		return 0;
 
 	sprintf(id, "gpt%d_fck", pwm_dev.gpt.timer_num);
