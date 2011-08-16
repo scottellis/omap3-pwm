@@ -13,6 +13,9 @@ else
 endif
 
 
+install:
+	scp pwm.ko root@192.168.10.113:/home/root
+
 clean:
 	rm -rf *~ *.ko *.o *.mod.c modules.order Module.symvers .pwm* .tmp_versions
 
