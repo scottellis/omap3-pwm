@@ -89,8 +89,6 @@ static int init_mux(void)
 {
 	void __iomem *base;
 
-	printk(KERN_INFO "inside init_mux()\n");
-
 	base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
 	if (!base) {
 		printk(KERN_ALERT "init_mux(): ioremap() failed\n");
@@ -126,8 +124,6 @@ static int restore_mux(void)
 static int set_pwm_frequency(void)
 {
 	void __iomem *base;
-
-	printk(KERN_INFO "Inside set_pwm_frequency()\n");
 
 	base = ioremap(pwm_dev.gpt.gpt_base, GPT_REGS_PAGE_SIZE);
 	if (!base) {
