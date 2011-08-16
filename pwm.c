@@ -36,6 +36,7 @@
 #include <asm/uaccess.h>
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
+#include <linux/clk.h>
 
 #include "pwm.h"
 
@@ -62,6 +63,7 @@ struct gpt {
 	u32 timer_num;
 	u32 mux_offset;
 	u32 gpt_base;
+	struct clk *clk;
 	u32 input_freq;
 	u32 old_mux;
 	u32 tldr;
@@ -75,6 +77,7 @@ struct pwm_dev {
 	struct cdev cdev;
 	struct class *class;
 	struct semaphore sem;
+	struct clk *gpt_clk;
 	struct gpt gpt;
 	char *user_buff;
 };
@@ -85,6 +88,8 @@ static struct pwm_dev pwm_dev;
 static int init_mux(void)
 {
 	void __iomem *base;
+
+	printk(KERN_INFO "inside init_mux()\n");
 
 	base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
 	if (!base) {
@@ -122,6 +127,8 @@ static int set_pwm_frequency(void)
 {
 	void __iomem *base;
 
+	printk(KERN_INFO "Inside set_pwm_frequency()\n");
+
 	base = ioremap(pwm_dev.gpt.gpt_base, GPT_REGS_PAGE_SIZE);
 	if (!base) {
 		printk(KERN_ALERT "set_pwm_frequency(): ioremap failed\n");
@@ -141,7 +148,7 @@ static int set_pwm_frequency(void)
 
 	iowrite32(pwm_dev.gpt.tldr, base + GPT_TLDR);
 
-	/* initialize TCRR to TLDR, have to start somewhere */
+	// initialize TCRR to TLDR, have to start somewhere
 	iowrite32(pwm_dev.gpt.tldr, base + GPT_TCRR);
 
 	iounmap(base);
@@ -290,6 +297,7 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 		goto pwm_write_done;
 	}
 
+
 	duty_cycle = simple_strtoul(pwm_dev.user_buff, NULL, 0);
 
 	set_duty_cycle(duty_cycle);
@@ -306,6 +314,36 @@ pwm_write_done:
 	return error;
 }
 
+static int pwm_enable_clock(void)
+{
+	char id[16];
+
+	if (pwm_dev.gpt_clk)
+		return 0;
+
+	sprintf(id, "gpt%d_fck", pwm_dev.gpt.timer_num);
+	
+	pwm_dev.gpt.clk = clk_get(NULL, id);
+
+	if (IS_ERR(pwm_dev.gpt.clk)) {
+		printk(KERN_ERR "Failed to get %s\n", id);
+		return -1;
+	}
+
+	pwm_dev.gpt.input_freq = clk_get_rate(pwm_dev.gpt.clk);
+
+	printk(KERN_INFO "%s clock rate %u\n", id, pwm_dev.gpt.input_freq);
+
+	if (clk_enable(pwm_dev.gpt.clk)) {
+		clk_put(pwm_dev.gpt.clk);
+		pwm_dev.gpt.clk = NULL;
+		printk(KERN_ERR "Error enabling %s\n", id);
+		return -1;
+	}
+	
+	return 0;	
+}
+
 static int pwm_open(struct inode *inode, struct file *filp)
 {
 	int error = 0;
@@ -316,8 +354,10 @@ static int pwm_open(struct inode *inode, struct file *filp)
 	if (pwm_dev.gpt.old_mux == 0) {
 		if (init_mux())  
 			error = -EIO;
-		else if (set_pwm_frequency()) 
+		else if (pwm_enable_clock())
 			error = -EIO;
+		else if (set_pwm_frequency()) 
+			error = -EIO;		
 	}
 
 	if (!pwm_dev.user_buff) {
@@ -389,12 +429,11 @@ static int __init pwm_init(void)
 
 	memset(&pwm_dev, 0, sizeof(struct pwm_dev));
 
-	/* change these 4 values to use a different PWM */
+	/* change these 3 values to use a different PWM */
 	pwm_dev.gpt.timer_num = 10;
 	pwm_dev.gpt.mux_offset = GPT10_MUX_OFFSET;
 	pwm_dev.gpt.gpt_base = PWM10_CTL_BASE;
-	pwm_dev.gpt.input_freq = CLK_32K_FREQ;
-
+		
 	pwm_dev.gpt.tldr = DEFAULT_TLDR;
 	pwm_dev.gpt.tmar = DEFAULT_TMAR;
 	pwm_dev.gpt.tclr = DEFAULT_TCLR;
@@ -427,6 +466,12 @@ static void __exit pwm_exit(void)
 	unregister_chrdev_region(pwm_dev.devt, 1);
 
 	pwm_off();
+
+	if (pwm_dev.gpt.clk) {
+		clk_disable(pwm_dev.gpt.clk);
+		clk_put(pwm_dev.gpt.clk);
+	}
+
 	restore_mux();
 
 	if (pwm_dev.user_buff)
