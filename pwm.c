@@ -229,27 +229,18 @@ static int pwm_set_frequency(struct pwm_dev *pd)
 		return -1;
 	}
 
-	if (frequency < 0) {
+	if (frequency <= 0)
 		frequency = DEFAULT_PWM_FREQUENCY;
-	} else {
-		/* only powers of two, for simplicity */
-		frequency &= ~0x01;
+	else if (frequency > (pd->input_freq / 2)) 
+		frequency = pd->input_freq / 2;
 
-		if (frequency > (pd->input_freq / 2)) 
-			frequency = pd->input_freq / 2;
-		else if (frequency == 0)
-			frequency = DEFAULT_PWM_FREQUENCY;
-	}
-
-	/* PWM_FREQ = 32768 / ((0xFFFF FFFF - TLDR) + 1) */
 	pd->tldr = 0xFFFFFFFF - ((pd->input_freq / frequency) - 1);
 
-	/* just for convenience */	
 	pd->num_freqs = 0xFFFFFFFE - pd->tldr;	
 
 	iowrite32(pd->tldr, base + GPT_TLDR);
 
-	/* initialize TCRR to TLDR, have to start somewhere */
+	// initialize TCRR to TLDR, have to start somewhere
 	iowrite32(pd->tldr, base + GPT_TCRR);
 
 	iounmap(base);
@@ -297,52 +288,16 @@ static int pwm_on(struct pwm_dev *pd)
 	return 0;
 }
 
-static int pwm_set_us_pulse(struct pwm_dev *pd, unsigned int us_pulse) 
+static int pwm_set_duty_cycle(struct pwm_dev *pd, unsigned int duty_cycle) 
 {
-	u32 new_tmar, factor;
+	unsigned int new_tmar;
 
 	pwm_off(pd);
 
-	if (us_pulse == 0)
+	if (duty_cycle == 0)
 		return 0;
-
-	printk(KERN_INFO "us pulse rx=%d frequency=%d num_freq=%d ", 
-		us_pulse, frequency, pd->num_freqs);
  
-	/* new_tmar is the duty cycle, basically 0 - num_freqs maps to
-	   0% - 100% duty cycle.
-
-	   So (us_pulse/1000000) * frequency * num_freq = tmar but we
-	   have to worry about integer overflow (INT_MAX=4294967295u)
-	   so I precompute 1000000 / freq and then divide by that
-	   number to stay inside uint32 limits.
-
-	   Hack: gpt.num_freqs is 259998 for the 13Mhz timer.  This
-	   can be divided evenly by 2, 3, 17, and 2549.  If I
-	   predivide by 259998 by 2, I think I can specify the input
-	   pulse length in us*10 and still stay inside u32 integer
-	   bounds.
-	*/
-
-	/* original code that overflows a uint32 with us input:
-	   new_tmar = (us_pulse * frequency * pwm_dev[channel].num_freqs)
-	              / 1000000;
-	*/
-
-	/* refactored formula to not overflow with us input:
-	   factor = 1000000 / frequency;
-	   new_tmar = (us_pulse * pwm_dev[channel].num_freqs) / factor;
-	*/
-
-	/* further observation that we can divide both gpt.num_freq
-	   and 1000000 by 2 which makes the intermediate math even
-	   smaller.  This allows us to specify input in us*10 for
-	   1/10us accuracy ... woot woot!  Note, forumula is updated
-	   to expect us*10 input*/
-	factor = 10000000 / (frequency * 2);
-	new_tmar = (us_pulse * (pd->num_freqs / 2)) / factor;
-
-	printk("new tmar: %d\n", new_tmar);
+	new_tmar = (duty_cycle * pd->num_freqs) / 100;
 
 	if (new_tmar < 1) 
 		new_tmar = 1;
@@ -387,9 +342,6 @@ static int pwm_timer_init(void)
 	for (i = 0; i < NUM_PWM_TIMERS; i++) {
 		// frequency is a global module param
 		if (pwm_set_frequency(&pwm_dev[i]))
-			goto timer_init_fail;
-			
-		if (pwm_set_us_pulse(&pwm_dev[i], 1500))
 			goto timer_init_fail;
 	}
 
@@ -454,7 +406,7 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 			size_t count, loff_t *offp)
 {
 	size_t len;
-	unsigned int us_pulse;
+	unsigned int duty_cycle;
 	ssize_t error = 0;
 
 	struct pwm_dev *pd = filp->private_data;
@@ -481,9 +433,9 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 		goto pwm_write_done;
 	}
 
-	us_pulse = simple_strtoul(pd->user_buff, NULL, 0);
+	duty_cycle = simple_strtoul(pd->user_buff, NULL, 0);
 
-	pwm_set_us_pulse(pd, us_pulse);
+	pwm_set_duty_cycle(pd, duty_cycle);
 
 	*offp += count;
 
