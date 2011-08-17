@@ -78,7 +78,7 @@ struct pwm_dev {
 	struct cdev cdev;
 	struct class *class;
 	struct semaphore sem;
-	u32 timer_num;
+	u32 pwm;
 	u32 mux_offset;
 	u32 gpt_base;
 	u32 input_freq;
@@ -333,12 +333,12 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 
 		snprintf(pwm_devp->user_buff, USER_BUFF_SIZE,
 				"PWM%d Frequency %u Hz Duty Cycle %u%%\n",
-				pwm_devp->timer_num, frequency, duty_cycle);
+				pwm_devp->pwm, frequency, duty_cycle);
 	}
 	else {
 		snprintf(pwm_devp->user_buff, USER_BUFF_SIZE,
 				"PWM%d Frequency %u Hz Stopped\n",
-				pwm_devp->timer_num, frequency);
+				pwm_devp->pwm, frequency);
 	}
 
 	len = strlen(pwm_devp->user_buff);
@@ -448,7 +448,7 @@ static int __init pwm_init_cdev(int channel)
 {
 	int error;
 
-	error = alloc_chrdev_region(&pwm_dev[channel].devt, pwm_dev[channel].timer_num, 
+	error = alloc_chrdev_region(&pwm_dev[channel].devt, pwm_dev[channel].pwm, 
 					1, "pwm");
 
 	if (error < 0) {
@@ -512,10 +512,10 @@ static int __init pwm_init(void)
 	memset(&pwm_dev, 0, sizeof(struct pwm_dev));
 
 	/* change these 4 values to use a different PWM */
-	pwm_dev[0].timer_num = 8;
-	pwm_dev[1].timer_num = 9;
-	pwm_dev[2].timer_num = 10;
-	pwm_dev[3].timer_num = 11;
+	pwm_dev[0].pwm = 8;
+	pwm_dev[1].pwm = 9;
+	pwm_dev[2].pwm = 10;
+	pwm_dev[3].pwm = 11;
 
 	pwm_dev[0].number = 0;
 	pwm_dev[1].number = 1;
