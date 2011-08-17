@@ -349,8 +349,6 @@ static int pwm_open(struct inode *inode, struct file *filp)
 	if (pwm_dev.gpt.old_mux == 0) {
 		if (init_mux())  
 			error = -EIO;
-		else if (pwm_enable_clock())
-			error = -EIO;
 		else if (set_pwm_frequency()) 
 			error = -EIO;		
 	}
@@ -420,9 +418,7 @@ static int __init pwm_init_class(void)
  
 static int __init pwm_init(void)
 {
-	int error = 0;
-
-	memset(&pwm_dev, 0, sizeof(struct pwm_dev));
+	int error;
 
 	/* change these 3 values to use a different PWM */
 	pwm_dev.gpt.timer_num = 10;
@@ -435,14 +431,24 @@ static int __init pwm_init(void)
 
 	sema_init(&pwm_dev.sem, 1);
 
-	if (pwm_init_cdev())
+	error = pwm_init_cdev();
+	if (error)
 		goto init_fail;
 
-	if (pwm_init_class())
+	error = pwm_init_class();
+	if (error)
 		goto init_fail_2;
 
+	error = pwm_enable_clock();
+	if (error)
+		goto init_fail_3;
+		
 	return 0;
 
+init_fail_3:
+	device_destroy(pwm_dev.class, pwm_dev.devt);
+	class_destroy(pwm_dev.class);
+	
 init_fail_2:
 	cdev_del(&pwm_dev.cdev);
 	unregister_chrdev_region(pwm_dev.devt, 1);
