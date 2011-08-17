@@ -4,8 +4,9 @@ if [[ -z "${KERNEL_CROSS_BUILD_ENVIRONMENT_SOURCED}" ]]; then
 
 	# normally OETMP will be ${OVEROTOP}/tmp, but really it is whatever TMPDIR
 	# in ${OVEROTOP}/build/conf/site.conf points to.
-	OETMP=${OVEROTOP}/tmp
-	# OETMP=/gum2
+	if [[ -z "${OETMP}" ]]; then
+		OETMP=${OVEROTOP}/tmp
+	fi
 
 	SYSROOTSDIR=${OETMP}/sysroots
 	STAGEDIR=${SYSROOTSDIR}/`uname -m`-linux/usr
