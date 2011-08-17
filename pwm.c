@@ -50,14 +50,23 @@
 /* default TCLR is off state */
 #define DEFAULT_TCLR (GPT_TCLR_PT | GPT_TCLR_TRG_OVFL_MATCH | GPT_TCLR_CE | GPT_TCLR_AR) 
 
+static int pwm = 10;
+module_param(pwm, int, S_IRUGO);
+MODULE_PARM_DESC(pwm, "which pwm");
+
 #define DEFAULT_PWM_FREQUENCY 1024
 
 static int frequency = DEFAULT_PWM_FREQUENCY;
 module_param(frequency, int, S_IRUGO);
 MODULE_PARM_DESC(frequency, "the pwm frequency");
 
+static int use_sys_clock = 0;
+module_param(use_sys_clock, int, S_IRUGO);
+MODULE_PARM_DESC(use_sys_clock, "use 13 MHz source clock");
+
 
 #define USER_BUFF_SIZE	128
+
 
 struct gpt {
 	u32 timer_num;
@@ -117,6 +126,121 @@ static int restore_mux(void)
 		iounmap(base);	
 	}
 
+	return 0;
+}
+
+static int pwm_enable_clock(void)
+{
+	char id[16];
+
+	if (pwm_dev.gpt.clk)
+		return 0;
+
+	sprintf(id, "gpt%d_fck", pwm_dev.gpt.timer_num);
+	
+	pwm_dev.gpt.clk = clk_get(NULL, id);
+
+	if (IS_ERR(pwm_dev.gpt.clk)) {
+		printk(KERN_ERR "Failed to get %s\n", id);
+		return -1;
+	}
+
+	pwm_dev.gpt.input_freq = clk_get_rate(pwm_dev.gpt.clk);
+		
+	if (clk_enable(pwm_dev.gpt.clk)) {
+		clk_put(pwm_dev.gpt.clk);
+		pwm_dev.gpt.clk = NULL;
+		printk(KERN_ERR "Error enabling %s\n", id);
+		return -1;
+	}
+	
+	return 0;	
+}
+
+static void pwm_free_clock(void)
+{
+	if (pwm_dev.gpt.clk) {
+		clk_disable(pwm_dev.gpt.clk);
+		clk_put(pwm_dev.gpt.clk);
+	}
+}
+
+#define CLKSEL_GPT11 0x80
+#define CLKSEL_GPT10 0x40
+
+/* 
+ * Change PWM10 or PWM11 to use the 13MHz CM_SYS_CLK rather then the
+ * 32kHz CM_32K_CLK 
+ * It would be nice to do this with clk_set_rate() or omap2_clksel_set_rate()
+ * or some built-in function like that, but no joy getting one to work thus
+ * far.
+ */
+static int pwm_use_sys_clk(void)
+{
+	void __iomem *base;
+	u32 val;
+
+	if (pwm_dev.gpt.timer_num != 10 && pwm_dev.gpt.timer_num != 11)
+		return 0;
+		
+	if (pwm_dev.gpt.input_freq == CLK_SYS_FREQ)
+		return 0;
+		
+	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
+
+	if (!base) {
+		printk(KERN_ALERT "use_sys_clk(): ioremap() failed\n");
+		return -1;
+	}
+
+	val = ioread32(base + CM_CLKSEL_CORE_OFFSET);
+	
+	if (pwm_dev.gpt.timer_num == 10)
+		val |= CLKSEL_GPT10;
+	else
+		val |= CLKSEL_GPT11;
+		
+	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
+	iounmap(base);
+
+	pwm_dev.gpt.input_freq = CLK_SYS_FREQ;
+		
+	return 0;
+}
+
+/* 
+ * Restore PWM10 or PWM11 to using the CM_32K_CLK 
+ */
+static int pwm_restore_32k_clk(void)
+{
+	void __iomem *base;
+	u32 val;
+
+	if (pwm_dev.gpt.timer_num != 10 && pwm_dev.gpt.timer_num != 11)
+		return 0;
+		
+	if (pwm_dev.gpt.input_freq == CLK_32K_FREQ)
+		return 0;
+
+	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
+
+	if (!base) {
+		printk(KERN_ALERT "restore_32k_clk(): ioremap() failed\n");
+		return -1;
+	}
+
+	val = ioread32(base + CM_CLKSEL_CORE_OFFSET);
+	
+	if (pwm_dev.gpt.timer_num == 10)
+		val &= ~CLKSEL_GPT10;
+	else
+		val &= ~CLKSEL_GPT11;
+		
+	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
+	iounmap(base);
+
+	pwm_dev.gpt.input_freq = CLK_32K_FREQ;
+	
 	return 0;
 }
 
@@ -309,36 +433,6 @@ pwm_write_done:
 	return error;
 }
 
-static int pwm_enable_clock(void)
-{
-	char id[16];
-
-	if (pwm_dev.gpt.clk)
-		return 0;
-
-	sprintf(id, "gpt%d_fck", pwm_dev.gpt.timer_num);
-	
-	pwm_dev.gpt.clk = clk_get(NULL, id);
-
-	if (IS_ERR(pwm_dev.gpt.clk)) {
-		printk(KERN_ERR "Failed to get %s\n", id);
-		return -1;
-	}
-
-	pwm_dev.gpt.input_freq = clk_get_rate(pwm_dev.gpt.clk);
-
-	printk(KERN_INFO "%s clock rate %u\n", id, pwm_dev.gpt.input_freq);
-
-	if (clk_enable(pwm_dev.gpt.clk)) {
-		clk_put(pwm_dev.gpt.clk);
-		pwm_dev.gpt.clk = NULL;
-		printk(KERN_ERR "Error enabling %s\n", id);
-		return -1;
-	}
-	
-	return 0;	
-}
-
 static int pwm_open(struct inode *inode, struct file *filp)
 {
 	int error = 0;
@@ -381,7 +475,7 @@ static int __init pwm_init_cdev(void)
 	if (error < 0) {
 		printk(KERN_ALERT "alloc_chrdev_region() failed: %d \n", 
 			error);
-		return -1;
+		return error;
 	}
 
 	cdev_init(&pwm_dev.cdev, &pwm_fops);
@@ -391,7 +485,7 @@ static int __init pwm_init_cdev(void)
 	if (error) {
 		printk(KERN_ALERT "cdev_add() failed: %d\n", error);
 		unregister_chrdev_region(pwm_dev.devt, 1);
-		return -1;
+		return error;
 	}	
 
 	return 0;
@@ -420,10 +514,33 @@ static int __init pwm_init(void)
 {
 	int error;
 
-	/* change these 3 values to use a different PWM */
-	pwm_dev.gpt.timer_num = 10;
-	pwm_dev.gpt.mux_offset = GPT10_MUX_OFFSET;
-	pwm_dev.gpt.gpt_base = PWM10_CTL_BASE;
+	if (pwm < 8 || pwm > 11) {
+		printk(KERN_ERR "Invalid pwm argument: %d\n", pwm);
+		return -EINVAL;
+	}
+	
+	pwm_dev.gpt.timer_num = pwm;
+	
+	switch (pwm) {
+	case 8:	
+		pwm_dev.gpt.mux_offset = GPT8_MUX_OFFSET;
+		pwm_dev.gpt.gpt_base = PWM8_CTL_BASE;	
+		break;
+		
+	case 9:
+		pwm_dev.gpt.mux_offset = GPT9_MUX_OFFSET;
+		pwm_dev.gpt.gpt_base = PWM9_CTL_BASE;
+		break;
+		
+	case 10:
+		pwm_dev.gpt.mux_offset = GPT10_MUX_OFFSET;
+		pwm_dev.gpt.gpt_base = PWM10_CTL_BASE;
+		break;
+		
+	case 11:	
+		pwm_dev.gpt.mux_offset = GPT11_MUX_OFFSET;
+		pwm_dev.gpt.gpt_base = PWM11_CTL_BASE;
+	}
 		
 	pwm_dev.gpt.tldr = DEFAULT_TLDR;
 	pwm_dev.gpt.tmar = DEFAULT_TMAR;
@@ -442,9 +559,20 @@ static int __init pwm_init(void)
 	error = pwm_enable_clock();
 	if (error)
 		goto init_fail_3;
+
+	if (use_sys_clock) {
+		 error = pwm_use_sys_clk();
+		 if (error)
+			goto init_fail_4;
+	}
+	
+	printk(KERN_INFO "source clock rate %u\n", pwm_dev.gpt.input_freq);
 		
 	return 0;
 
+init_fail_4:
+	pwm_free_clock();
+	
 init_fail_3:
 	device_destroy(pwm_dev.class, pwm_dev.devt);
 	class_destroy(pwm_dev.class);
@@ -467,12 +595,11 @@ static void __exit pwm_exit(void)
 	unregister_chrdev_region(pwm_dev.devt, 1);
 
 	pwm_off();
-
-	if (pwm_dev.gpt.clk) {
-		clk_disable(pwm_dev.gpt.clk);
-		clk_put(pwm_dev.gpt.clk);
-	}
-
+	
+	if (use_sys_clock)
+		pwm_restore_32k_clk();
+		
+	pwm_free_clock();
 	restore_mux();
 
 	if (pwm_dev.user_buff)
