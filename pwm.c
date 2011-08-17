@@ -189,6 +189,9 @@ static int pwm_use_sys_clk(void)
 	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
 	iounmap(base);
 
+	pwm_dev[2].input_freq = CLK_SYS_FREQ;
+	pwm_dev[3].input_freq = CLK_SYS_FREQ;
+	
 	return 0;
 }
 
@@ -210,6 +213,9 @@ static int pwm_restore_32k_clk(void)
 	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
 	iounmap(base);
 
+	pwm_dev[2].input_freq = CLK_32K_FREQ;
+	pwm_dev[3].input_freq = CLK_32K_FREQ;
+	
 	return 0;
 }
 
@@ -356,7 +362,7 @@ static void pwm_timer_cleanup(void)
 	// function if PWM10 or PWM11 fck is enabled or you might oops
 	if (pwm_dev[2].clk || pwm_dev[3].clk)
 		pwm_restore_32k_clk();
-
+	
 	for (i = 0; i < NUM_PWM_TIMERS; i++) {
 		pwm_free_clock(&pwm_dev[i]);
 		pwm_restore_mux(&pwm_dev[i]);	
