@@ -18,29 +18,18 @@ And Curtis Olson has a more general PWM article here:
 http://gallinazo.flightgear.org/technology/gumstix-overo-rc-servos-and-pwm-signal-generation/
 
 
-The code should work with any OMAP3 board, but I only tested with Gumstix Overo 
-and Beagleboard.
+The code should work with any OMAP3 board, but I only tested with Gumstix Overo. 
 
-The [master] branch of this project only implements one PWM channel. The default
-is PWM10. 
+The [master] branch of this project only implements one PWM channel at a time.
+The default is PWM10, but you can change that with a module parameter.
 
 The [four-channel] branch of the project implements all 4 PWM channels each with
 their own char dev node. 
 
-The [explicit-clk-enable] branch is for 2.6.39 kernels and later. Previous kernels
-had the PWM source clocks enabled by default if CONFIG_OMAP_RESET_CLOCKS was not 
-enabled. No longer, so the driver code now does it explicitly.
-
 There is a ${MACHINE}-source-me.txt file that will set up your environment for
 the cross-compilation. It assumes you are using an OE environment and it tries 
-to be generic enough for both userland and kernel/module stuff. 
-
-You should modify or create a similar script for pointing to the build system 
-you are using.
-
-If you modified your OE temp directory, then also update the OETMP variable in 
-the appropriate ${MACHINE}-source-me.txt. I kind of tested overo and beagleboard, 
-but I don't normally use the defaults.
+to be generic enough for both userland and kernel/module stuff. Export an OETMP
+before sourcing this file if you have a non-standard OETMP location. 
 
 Follow these steps to build. Using an overo for the example.
 
@@ -53,7 +42,8 @@ If you want to build the [four-channel] branch use git to check it out now.
 
 Then
 
-	$ <edit> overo-source-me.txt
+	<optional> $ export OETMP=/<some-non-standard-location>
+
 	$ source overo-source-me.txt
 	$ make 
 
@@ -63,17 +53,41 @@ These final instructions apply to the [master] branch version of the driver.
 
 The [four-channel] instruction are coming soon.
 
-Once on the system, use insmod to load using the optional frequency parameter.
-The default frequency is 1024 Hz. Use multiples of two with a max of 16384.
+Once on the system, use insmod to load the driver.
+There are several parameters you can pass to the module on load.
+
+pwm=<channel> choices are 8,9,10 or 11
+
+use_sys_clock=1 only applicable for PWM 10 or 11. PWM 8 and 9 already use
+		the 13 MHz sys clock for input. The default for PWM 10 or 11
+		is to use a 32768 Hz clock. Gives you better granularity.
+
+frequency=<n> 	Some multiple of two (because I'm a lazy coder) up to the input
+		clock frequency / 2. The input clock is either 13 MHz 
+		or 32768 Hz depending on the PWM channel and whether the
+		use_sys_clock is set. The default frequency is 1024.
+
+The driver implements a character device interface. When it loads, it will 
+create a /dev/pwm<channel> entry. If you are on the console or watching the log
+the driver will show you the source clock frequency.
 
 	root@overo# ls
 	pwm.ko
 
 	root@overo# insmod pwm.ko
+	[17311.489135] source clock rate 32768
 
-The driver implements a character device interface. When it loads, it will 
-create a /dev/pwm10 entry.
- 
+	root@overo:~# rmmod pwm
+
+	root@overo:~# insmod pwm.ko pwm=8
+	[17373.138122] source clock rate 13000000
+
+	root@overo:~# rmmod pwm
+
+	root@overo:~# insmod pwm.ko pwm=10 use_sys_clock=1
+	[17445.638397] source clock rate 13000000
+
+
 Then to issue commands you can use any program that can do file I/O. 
 cat and echo will work. 
 
@@ -107,9 +121,9 @@ The driver takes care of muxing the output pin correctly and restores the origin
 muxing when it unloads. The default muxing by Gumstix for the PWM pins is to be
 GPIO. 
 
-For now, if you want to change which timer is being used, look at pwm_init().
 
-
+The driver now also starts the PWM input clock so the following note is probably
+not necessary. I didn't test with a beagleboard though, so I'll leave it here.
 
 BEAGLEBOARD Note: The kernel config option CONFIG_OMAP_RESET_CLOCKS is enabled
 in the default beagleboard defconfigs. You'll get an oops using pwm.ko with
