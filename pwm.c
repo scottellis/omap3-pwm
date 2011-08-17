@@ -73,7 +73,11 @@ MODULE_PARM_DESC(frequency, "The PWM frequency, power of two, max of 16384");
 
 #define USER_BUFF_SIZE	128
 
-struct gpt {
+struct pwm_dev {
+	dev_t devt;
+	struct cdev cdev;
+	struct class *class;
+	struct semaphore sem;
 	u32 timer_num;
 	u32 mux_offset;
 	u32 gpt_base;
@@ -83,14 +87,6 @@ struct gpt {
 	u32 tmar;
 	u32 tclr;
 	u32 num_freqs;
-};
-
-struct pwm_dev {
-	dev_t devt;
-	struct cdev cdev;
-	struct class *class;
-	struct semaphore sem;
-	struct gpt gpt;
 	char *user_buff;
 	u8 number;
 };
@@ -109,8 +105,8 @@ static int init_mux(int channel)
 		return -1;
 	}
 
-	pwm_dev[channel].gpt.old_mux = ioread16(base + pwm_dev[channel].gpt.mux_offset);
-	iowrite16(PWM_ENABLE_MUX, base + pwm_dev[channel].gpt.mux_offset);
+	pwm_dev[channel].old_mux = ioread16(base + pwm_dev[channel].mux_offset);
+	iowrite16(PWM_ENABLE_MUX, base + pwm_dev[channel].mux_offset);
 	iounmap(base);	
 
 	return 0;
@@ -120,7 +116,7 @@ static int restore_mux(int channel)
 {
 	void __iomem *base;
 
-	if (pwm_dev[channel].gpt.old_mux) {
+	if (pwm_dev[channel].old_mux) {
 		base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
 	
 		if (!base) {
@@ -128,7 +124,7 @@ static int restore_mux(int channel)
 			return -1;
 		}
 
-		iowrite16(pwm_dev[channel].gpt.old_mux, base + pwm_dev[channel].gpt.mux_offset);
+		iowrite16(pwm_dev[channel].old_mux, base + pwm_dev[channel].mux_offset);
 		iounmap(base);	
 	}
 
@@ -181,7 +177,7 @@ static int set_pwm_frequency(int channel)
 {
 	void __iomem *base;
 
-	base = ioremap(pwm_dev[channel].gpt.gpt_base, GPT_REGS_PAGE_SIZE);
+	base = ioremap(pwm_dev[channel].gpt_base, GPT_REGS_PAGE_SIZE);
 	if (!base) {
 		printk(KERN_ALERT "set_pwm_frequency(): ioremap failed\n");
 		return -1;
@@ -193,22 +189,22 @@ static int set_pwm_frequency(int channel)
 		/* only powers of two, for simplicity */
 		frequency &= ~0x01;
 
-		if (frequency > (pwm_dev[channel].gpt.input_freq / 2)) 
-			frequency = pwm_dev[channel].gpt.input_freq / 2;
+		if (frequency > (pwm_dev[channel].input_freq / 2)) 
+			frequency = pwm_dev[channel].input_freq / 2;
 		else if (frequency == 0)
 			frequency = DEFAULT_PWM_FREQUENCY;
 	}
 
 	/* PWM_FREQ = 32768 / ((0xFFFF FFFF - TLDR) + 1) */
-	pwm_dev[channel].gpt.tldr = 0xFFFFFFFF - ((pwm_dev[channel].gpt.input_freq / frequency) - 1);
+	pwm_dev[channel].tldr = 0xFFFFFFFF - ((pwm_dev[channel].input_freq / frequency) - 1);
 
 	/* just for convenience */	
-	pwm_dev[channel].gpt.num_freqs = 0xFFFFFFFE - pwm_dev[channel].gpt.tldr;	
+	pwm_dev[channel].num_freqs = 0xFFFFFFFE - pwm_dev[channel].tldr;	
 
-	iowrite32(pwm_dev[channel].gpt.tldr, base + GPT_TLDR);
+	iowrite32(pwm_dev[channel].tldr, base + GPT_TLDR);
 
 	/* initialize TCRR to TLDR, have to start somewhere */
-	iowrite32(pwm_dev[channel].gpt.tldr, base + GPT_TCRR);
+	iowrite32(pwm_dev[channel].tldr, base + GPT_TCRR);
 
 	iounmap(base);
 
@@ -219,14 +215,14 @@ static int pwm_off(int channel)
 {
 	void __iomem *base;
 
-	base = ioremap(pwm_dev[channel].gpt.gpt_base, GPT_REGS_PAGE_SIZE);
+	base = ioremap(pwm_dev[channel].gpt_base, GPT_REGS_PAGE_SIZE);
 	if (!base) {
 		printk(KERN_ALERT "pwm_off(): ioremap failed\n");
 		return -1;
 	}
 
-	pwm_dev[channel].gpt.tclr &= ~GPT_TCLR_ST;
-	iowrite32(pwm_dev[channel].gpt.tclr, base + GPT_TCLR); 
+	pwm_dev[channel].tclr &= ~GPT_TCLR_ST;
+	iowrite32(pwm_dev[channel].tclr, base + GPT_TCLR); 
 	iounmap(base);
 
 	return 0;
@@ -236,7 +232,7 @@ static int pwm_on(int channel)
 {
 	void __iomem *base;
 
-	base = ioremap(pwm_dev[channel].gpt.gpt_base, GPT_REGS_PAGE_SIZE);
+	base = ioremap(pwm_dev[channel].gpt_base, GPT_REGS_PAGE_SIZE);
 
 	if (!base) {
 		printk(KERN_ALERT "pwm_on(): ioremap failed\n");
@@ -244,12 +240,12 @@ static int pwm_on(int channel)
 	}
 
 	/* set the duty cycle */
-	iowrite32(pwm_dev[channel].gpt.tmar, base + GPT_TMAR);
+	iowrite32(pwm_dev[channel].tmar, base + GPT_TMAR);
 	
 	/* now turn it on */
-	pwm_dev[channel].gpt.tclr = ioread32(base + GPT_TCLR);
-	pwm_dev[channel].gpt.tclr |= GPT_TCLR_ST;
-	iowrite32(pwm_dev[channel].gpt.tclr, base + GPT_TCLR); 
+	pwm_dev[channel].tclr = ioread32(base + GPT_TCLR);
+	pwm_dev[channel].tclr |= GPT_TCLR_ST;
+	iowrite32(pwm_dev[channel].tclr, base + GPT_TCLR); 
 	iounmap(base);
 
 	return 0;
@@ -265,7 +261,7 @@ static int set_us_pulse(unsigned int us_pulse, int channel)
 	if (us_pulse == 0)
 		return 0;
 
-	printk("us pulse rx=%d frequency=%d num_freq=%d ", us_pulse, frequency, pwm_dev[channel].gpt.num_freqs);
+	printk("us pulse rx=%d frequency=%d num_freq=%d ", us_pulse, frequency, pwm_dev[channel].num_freqs);
  
 	/* new_tmar is the duty cycle, basically 0 - num_freqs maps to
 	   0% - 100% duty cycle.
@@ -283,13 +279,13 @@ static int set_us_pulse(unsigned int us_pulse, int channel)
 	*/
 
 	/* original code that overflows a uint32 with us input:
-	   new_tmar = (us_pulse * frequency * pwm_dev[channel].gpt.num_freqs)
+	   new_tmar = (us_pulse * frequency * pwm_dev[channel].num_freqs)
 	              / 1000000;
 	*/
 
 	/* refactored formula to not overflow with us input:
 	   factor = 1000000 / frequency;
-	   new_tmar = (us_pulse * pwm_dev[channel].gpt.num_freqs) / factor;
+	   new_tmar = (us_pulse * pwm_dev[channel].num_freqs) / factor;
 	*/
 
 	/* further observation that we can divide both gpt.num_freq
@@ -298,16 +294,16 @@ static int set_us_pulse(unsigned int us_pulse, int channel)
 	   1/10us accuracy ... woot woot!  Note, forumula is updated
 	   to expect us*10 input*/
 	factor = 10000000 / (frequency * 2);
-	new_tmar = (us_pulse * (pwm_dev[channel].gpt.num_freqs / 2)) / factor;
+	new_tmar = (us_pulse * (pwm_dev[channel].num_freqs / 2)) / factor;
 
 	printk("new tmar: %d\n", new_tmar);
 
 	if (new_tmar < 1) 
 		new_tmar = 1;
-	else if (new_tmar > pwm_dev[channel].gpt.num_freqs)
-		new_tmar = pwm_dev[channel].gpt.num_freqs;
+	else if (new_tmar > pwm_dev[channel].num_freqs)
+		new_tmar = pwm_dev[channel].num_freqs;
 		
-	pwm_dev[channel].gpt.tmar = pwm_dev[channel].gpt.tldr + new_tmar;
+	pwm_dev[channel].tmar = pwm_dev[channel].tldr + new_tmar;
 	
 	return pwm_on(channel);
 }
@@ -331,18 +327,18 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 	if (down_interruptible(&pwm_devp->sem)) 
 		return -ERESTARTSYS;
 
-	if (pwm_devp->gpt.tclr & GPT_TCLR_ST) {
-		duty_cycle = (100 * (pwm_devp->gpt.tmar - pwm_devp->gpt.tldr)) 
-				/ pwm_devp->gpt.num_freqs;
+	if (pwm_devp->tclr & GPT_TCLR_ST) {
+		duty_cycle = (100 * (pwm_devp->tmar - pwm_devp->tldr)) 
+				/ pwm_devp->num_freqs;
 
 		snprintf(pwm_devp->user_buff, USER_BUFF_SIZE,
 				"PWM%d Frequency %u Hz Duty Cycle %u%%\n",
-				pwm_devp->gpt.timer_num, frequency, duty_cycle);
+				pwm_devp->timer_num, frequency, duty_cycle);
 	}
 	else {
 		snprintf(pwm_devp->user_buff, USER_BUFF_SIZE,
 				"PWM%d Frequency %u Hz Stopped\n",
-				pwm_devp->gpt.timer_num, frequency);
+				pwm_devp->timer_num, frequency);
 	}
 
 	len = strlen(pwm_devp->user_buff);
@@ -423,7 +419,7 @@ static int pwm_open(struct inode *inode, struct file *filp)
 	if (down_interruptible(&pwm_devp->sem)) 
 		return -ERESTARTSYS;
 
-	if (pwm_devp->gpt.old_mux == 0) {
+	if (pwm_devp->old_mux == 0) {
 		if (init_mux(pwm_devp->number))  
 			error = -EIO;
 		else if (set_pwm_frequency(pwm_devp->number)) 
@@ -452,7 +448,7 @@ static int __init pwm_init_cdev(int channel)
 {
 	int error;
 
-	error = alloc_chrdev_region(&pwm_dev[channel].devt, pwm_dev[channel].gpt.timer_num, 
+	error = alloc_chrdev_region(&pwm_dev[channel].devt, pwm_dev[channel].timer_num, 
 					1, "pwm");
 
 	if (error < 0) {
@@ -516,36 +512,36 @@ static int __init pwm_init(void)
 	memset(&pwm_dev, 0, sizeof(struct pwm_dev));
 
 	/* change these 4 values to use a different PWM */
-	pwm_dev[0].gpt.timer_num = 8;
-	pwm_dev[1].gpt.timer_num = 9;
-	pwm_dev[2].gpt.timer_num = 10;
-	pwm_dev[3].gpt.timer_num = 11;
+	pwm_dev[0].timer_num = 8;
+	pwm_dev[1].timer_num = 9;
+	pwm_dev[2].timer_num = 10;
+	pwm_dev[3].timer_num = 11;
 
 	pwm_dev[0].number = 0;
 	pwm_dev[1].number = 1;
 	pwm_dev[2].number = 2;
 	pwm_dev[3].number = 3;
 
-	pwm_dev[0].gpt.mux_offset = GPT8_MUX_OFFSET;
-	pwm_dev[0].gpt.gpt_base = PWM8_CTL_BASE;
-	pwm_dev[0].gpt.input_freq = CLK_SYS_FREQ;
+	pwm_dev[0].mux_offset = GPT8_MUX_OFFSET;
+	pwm_dev[0].gpt_base = PWM8_CTL_BASE;
+	pwm_dev[0].input_freq = CLK_SYS_FREQ;
 
-	pwm_dev[1].gpt.mux_offset = GPT9_MUX_OFFSET;
-	pwm_dev[1].gpt.gpt_base = PWM9_CTL_BASE;
-	pwm_dev[1].gpt.input_freq = CLK_SYS_FREQ;
+	pwm_dev[1].mux_offset = GPT9_MUX_OFFSET;
+	pwm_dev[1].gpt_base = PWM9_CTL_BASE;
+	pwm_dev[1].input_freq = CLK_SYS_FREQ;
 
-	pwm_dev[2].gpt.mux_offset = GPT10_MUX_OFFSET;
-	pwm_dev[2].gpt.gpt_base = PWM10_CTL_BASE;
-	pwm_dev[2].gpt.input_freq = CLK_SYS_FREQ;
+	pwm_dev[2].mux_offset = GPT10_MUX_OFFSET;
+	pwm_dev[2].gpt_base = PWM10_CTL_BASE;
+	pwm_dev[2].input_freq = CLK_SYS_FREQ;
 
-	pwm_dev[3].gpt.mux_offset = GPT11_MUX_OFFSET;
-	pwm_dev[3].gpt.gpt_base = PWM11_CTL_BASE;
-	pwm_dev[3].gpt.input_freq = CLK_SYS_FREQ;
+	pwm_dev[3].mux_offset = GPT11_MUX_OFFSET;
+	pwm_dev[3].gpt_base = PWM11_CTL_BASE;
+	pwm_dev[3].input_freq = CLK_SYS_FREQ;
 
 	for(i=0;i<NUM_PWM_TIMERS;i++) {
-		pwm_dev[i].gpt.tldr = DEFAULT_TLDR;
-		pwm_dev[i].gpt.tmar = DEFAULT_TMAR;
-		pwm_dev[i].gpt.tclr = DEFAULT_TCLR;
+		pwm_dev[i].tldr = DEFAULT_TLDR;
+		pwm_dev[i].tmar = DEFAULT_TMAR;
+		pwm_dev[i].tclr = DEFAULT_TCLR;
 
 		sema_init(&pwm_dev[i].sem, 1);
 
