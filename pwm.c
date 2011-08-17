@@ -48,6 +48,7 @@
 #include <asm/uaccess.h>
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
+#include <linux/clk.h>
 
 #include "pwm.h"
 
@@ -76,11 +77,12 @@ MODULE_PARM_DESC(frequency, "The PWM frequency, power of two, max of 16384");
 struct pwm_dev {
 	dev_t devt;
 	struct cdev cdev;
-	struct class *class;
+	struct device *device;
 	struct semaphore sem;
 	u32 pwm;
 	u32 mux_offset;
 	u32 gpt_base;
+	struct clk *clk;
 	u32 input_freq;
 	u32 old_mux;
 	u32 tldr;
@@ -90,11 +92,13 @@ struct pwm_dev {
 	char *user_buff;
 };
 
+struct class *pwm_class;
+
 #define NUM_PWM_TIMERS 4
 static struct pwm_dev pwm_dev[NUM_PWM_TIMERS];
 
 
-static int init_mux(struct pwm_dev *pd)
+static int pwm_init_mux(struct pwm_dev *pd)
 {
 	void __iomem *base;
 
@@ -111,7 +115,7 @@ static int init_mux(struct pwm_dev *pd)
 	return 0;
 }
 
-static int restore_mux(struct pwm_dev *pd)
+static int pwm_restore_mux(struct pwm_dev *pd)
 {
 	void __iomem *base;
 
@@ -130,8 +134,44 @@ static int restore_mux(struct pwm_dev *pd)
 	return 0;
 }
 
+static int pwm_enable_clock(struct pwm_dev *pd)
+{
+	char id[16];
+
+	if (pd->clk)
+		return 0;
+
+	sprintf(id, "gpt%d_fck", pd->pwm);
+	
+	pd->clk = clk_get(NULL, id);
+
+	if (IS_ERR(pd->clk)) {
+		printk(KERN_ERR "Failed to get %s\n", id);
+		return -1;
+	}
+
+	pd->input_freq = clk_get_rate(pd->clk);
+		
+	if (clk_enable(pd->clk)) {
+		clk_put(pd->clk);
+		pd->clk = NULL;
+		printk(KERN_ERR "Error enabling %s\n", id);
+		return -1;
+	}
+	
+	return 0;	
+}
+
+static void pwm_free_clock(struct pwm_dev *pd)
+{
+	if (pd->clk) {
+		clk_disable(pd->clk);
+		clk_put(pd->clk);
+	}
+}
+
 /* Change PWM10 and PWM11 to use CM_SYS_CLK rather then CM_32K_CLK */
-static int use_sys_clk(void)
+static int pwm_use_sys_clk(void)
 {
 	void __iomem *base;
 	u32 val;
@@ -152,7 +192,7 @@ static int use_sys_clk(void)
 }
 
 /* Restore PWM10 and PWM11 to using the CM_32K_CLK */
-static int restore_32k_clk(void)
+static int pwm_restore_32k_clk(void)
 {
 	void __iomem *base;
 	u32 val;
@@ -172,7 +212,7 @@ static int restore_32k_clk(void)
 	return 0;
 }
 
-static int set_pwm_frequency(struct pwm_dev *pd)
+static int pwm_set_frequency(struct pwm_dev *pd)
 {
 	void __iomem *base;
 
@@ -250,7 +290,7 @@ static int pwm_on(struct pwm_dev *pd)
 	return 0;
 }
 
-static int set_us_pulse(struct pwm_dev *pd, unsigned int us_pulse) 
+static int pwm_set_us_pulse(struct pwm_dev *pd, unsigned int us_pulse) 
 {
 	u32 new_tmar, factor;
 
@@ -305,6 +345,53 @@ static int set_us_pulse(struct pwm_dev *pd, unsigned int us_pulse)
 	pd->tmar = pd->tldr + new_tmar;
 	
 	return pwm_on(pd);
+}
+
+static void pwm_timer_cleanup(void)
+{
+	int i;
+	
+	// since this is called by error handling code, only call this 
+	// function if PWM10 or PWM11 fck is enabled or you might oops
+	if (pwm_dev[2].clk || pwm_dev[3].clk)
+		pwm_restore_32k_clk();
+
+	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+		pwm_free_clock(&pwm_dev[i]);
+		pwm_restore_mux(&pwm_dev[i]);	
+	}
+}
+
+static int pwm_timer_init(void)
+{
+	int i;
+
+	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+		if (pwm_init_mux(&pwm_dev[i]))
+			goto timer_init_fail;
+		
+		if (pwm_enable_clock(&pwm_dev[i]))
+			goto timer_init_fail;
+	}
+
+	if (pwm_use_sys_clk()) 
+		goto timer_init_fail;
+	
+	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+		if (pwm_set_frequency(&pwm_dev[i]))
+			goto timer_init_fail;
+			
+		if (pwm_set_us_pulse(&pwm_dev[i], 1500))
+			goto timer_init_fail;
+	}
+
+	return 0;
+	
+timer_init_fail:
+
+	pwm_timer_cleanup();
+	
+	return -1;
 }
 
 static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
@@ -389,7 +476,7 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 
 	us_pulse = simple_strtoul(pd->user_buff, NULL, 0);
 
-	set_us_pulse(pd, us_pulse);
+	pwm_set_us_pulse(pd, us_pulse);
 
 	/* pretend we ate it all */
 	*offp += count;
@@ -411,13 +498,6 @@ static int pwm_open(struct inode *inode, struct file *filp)
 
 	if (down_interruptible(&pd->sem)) 
 		return -ERESTARTSYS;
-
-	if (pd->old_mux == 0) {
-		if (init_mux(pd))  
-			error = -EIO;
-		else if (set_pwm_frequency(pd)) 
-			error = -EIO;
-	}
 
 	if (!pd->user_buff) {
 		pd->user_buff = kmalloc(USER_BUFF_SIZE, GFP_KERNEL);
@@ -445,6 +525,7 @@ static int __init pwm_init_cdev(struct pwm_dev *pd)
 
 	if (error < 0) {
 		printk(KERN_ALERT "alloc_chrdev_region() fail: %d \n", error);
+		pd->devt = 0;
 		return -1;
 	}
 
@@ -455,6 +536,7 @@ static int __init pwm_init_cdev(struct pwm_dev *pd)
 	if (error) {
 		printk(KERN_ALERT "cdev_add() failed: %d\n", error);
 		unregister_chrdev_region(pd->devt, 1);
+		pd->devt = 0;
 		return -1;
 	}	
 
@@ -463,63 +545,62 @@ static int __init pwm_init_cdev(struct pwm_dev *pd)
 
 static int __init pwm_init_class(struct pwm_dev *pd)
 {
-	if (!pd->class) {
-		pd->class = class_create(THIS_MODULE, "pwm");
+	if (!pwm_class) {
+		pwm_class = class_create(THIS_MODULE, "pwm");
 
-		if (!pd->class) {
+		if (!pwm_class) {
 			printk(KERN_ALERT "class_create() failed\n");
 			return -1;
 		}
 	}
 	
-	if (!device_create(pd->class, NULL, pd->devt, NULL, "pwm%d", 
-				MINOR(pd->devt))) {
-		printk(KERN_ALERT "device_create(..., pwm) failed\n");		
-		class_destroy(pd->class);			
+	pd->device = device_create(pwm_class, NULL, pd->devt, NULL, "pwm%d", 
+				MINOR(pd->devt));
+					
+	if (!pd->device) {				
+		printk(KERN_ALERT "device_create(..., pwm) failed\n");					
 		return -1;
 	}
 
 	return 0;
 }
- 
-static int pulse_init_timers(void)
+
+static void pwm_dev_cleanup(void)
 {
 	int i;
-
-	if (use_sys_clk()) 
-	  return -1;
 	
-	for (i = 0; i < NUM_PWM_TIMERS; i++) 
-		set_us_pulse(&pwm_dev[i], 1500);
-
-	return 0;
+	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+		if (pwm_dev[i].device)
+			device_destroy(pwm_class, pwm_dev[i].devt);
+	}
+	
+	class_destroy(pwm_class);
+	
+	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+		cdev_del(&pwm_dev[i].cdev);
+		unregister_chrdev_region(pwm_dev[i].devt, 1);
+	}			
 }
 
 static int __init pwm_init(void)
 {
-	int i, error = 0;
+	int i;
 
-	/* change these 4 values to use a different PWM */
 	pwm_dev[0].pwm = 8;
-	pwm_dev[1].pwm = 9;
-	pwm_dev[2].pwm = 10;
-	pwm_dev[3].pwm = 11;
-
 	pwm_dev[0].mux_offset = GPT8_MUX_OFFSET;
 	pwm_dev[0].gpt_base = PWM8_CTL_BASE;
-	pwm_dev[0].input_freq = CLK_SYS_FREQ;
 
+	pwm_dev[1].pwm = 9;
 	pwm_dev[1].mux_offset = GPT9_MUX_OFFSET;
 	pwm_dev[1].gpt_base = PWM9_CTL_BASE;
-	pwm_dev[1].input_freq = CLK_SYS_FREQ;
 
+	pwm_dev[2].pwm = 10;
 	pwm_dev[2].mux_offset = GPT10_MUX_OFFSET;
 	pwm_dev[2].gpt_base = PWM10_CTL_BASE;
-	pwm_dev[2].input_freq = CLK_SYS_FREQ;
 
+	pwm_dev[3].pwm = 11;
 	pwm_dev[3].mux_offset = GPT11_MUX_OFFSET;
 	pwm_dev[3].gpt_base = PWM11_CTL_BASE;
-	pwm_dev[3].input_freq = CLK_SYS_FREQ;
 
 	for (i = 0; i < NUM_PWM_TIMERS; i++) {
 		pwm_dev[i].tldr = DEFAULT_TLDR;
@@ -529,27 +610,24 @@ static int __init pwm_init(void)
 		sema_init(&pwm_dev[i].sem, 1);
 
 		if (pwm_init_cdev(&pwm_dev[i]))
-			return error;
+			goto init_fail;
 
-		if (i > 0)
-			pwm_dev[i].class = pwm_dev[0].class;
-			
-		if (pwm_init_class(&pwm_dev[i])) {
-			cdev_del(&pwm_dev[i].cdev);
-			unregister_chrdev_region(pwm_dev[i].devt, 1);
-			return error;
-		}
+		if (pwm_init_class(&pwm_dev[i]))
+			goto init_fail;
 	}
 
-	if (pulse_init_timers()) {
-		for (i = 0; i < NUM_PWM_TIMERS; i++)
-			device_destroy(pwm_dev[i].class, pwm_dev[i].devt);
-
-		class_destroy(pwm_dev[0].class);				
-		return error;
-	}
+	if (pwm_timer_init())
+		goto init_fail_2;
 
 	return 0;
+	
+init_fail_2:	
+	pwm_timer_cleanup();
+	
+init_fail:	
+	pwm_dev_cleanup();
+	
+	return -1;
 }
 module_init(pwm_init);
 
@@ -557,27 +635,13 @@ static void __exit pwm_exit(void)
 {
 	int i;
 	
-	for (i = 0; i < NUM_PWM_TIMERS; i++) {
-		pwm_off(&pwm_dev[i]);
-		device_destroy(pwm_dev[i].class, pwm_dev[i].devt);
-	}
-	
-	class_destroy(pwm_dev[0].class);
+	pwm_dev_cleanup();
+	pwm_timer_cleanup();
 	
 	for (i = 0; i < NUM_PWM_TIMERS; i++) {
-		cdev_del(&pwm_dev[i].cdev);
-		unregister_chrdev_region(pwm_dev[i].devt, 1);
-	
 		if (pwm_dev[i].user_buff)
 			kfree(pwm_dev[i].user_buff);
 	}
-	
-	restore_32k_clk();
-
-	for (i = 0; i < NUM_PWM_TIMERS; i++) {
-		restore_mux(&pwm_dev[i]);	
-	}
-
 }
 module_exit(pwm_exit);
 
