@@ -92,6 +92,7 @@ struct pwm_dev {
 	char *user_buff;
 };
 
+// only one class
 struct class *pwm_class;
 
 #define NUM_PWM_TIMERS 4
@@ -104,7 +105,7 @@ static int pwm_init_mux(struct pwm_dev *pd)
 
 	base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
 	if (!base) {
-		printk(KERN_ALERT "init_mux(): ioremap() failed\n");
+		printk(KERN_ALERT "pwm_init_mux(): ioremap() failed\n");
 		return -1;
 	}
 
@@ -123,7 +124,7 @@ static int pwm_restore_mux(struct pwm_dev *pd)
 		base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
 	
 		if (!base) {
-			printk(KERN_ALERT "restore_mux(): ioremap() failed\n");
+			printk(KERN_ALERT "pwm_restore_mux(): ioremap() failed\n");
 			return -1;
 		}
 
@@ -179,7 +180,7 @@ static int pwm_use_sys_clk(void)
 	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
 
 	if (!base) {
-		printk(KERN_ALERT "use_sys_clk(): ioremap() failed\n");
+		printk(KERN_ALERT "pwm_use_sys_clk(): ioremap() failed\n");
 		return -1;
 	}
 
@@ -200,7 +201,7 @@ static int pwm_restore_32k_clk(void)
 	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
 
 	if (!base) {
-		printk(KERN_ALERT "restore_32k_clk(): ioremap() failed\n");
+		printk(KERN_ALERT "pwm_restore_32k_clk(): ioremap() failed\n");
 		return -1;
 	}
 
@@ -218,7 +219,7 @@ static int pwm_set_frequency(struct pwm_dev *pd)
 
 	base = ioremap(pd->gpt_base, GPT_REGS_PAGE_SIZE);
 	if (!base) {
-		printk(KERN_ALERT "set_pwm_frequency(): ioremap failed\n");
+		printk(KERN_ALERT "pwm_set_frequency(): ioremap failed\n");
 		return -1;
 	}
 
@@ -378,6 +379,7 @@ static int pwm_timer_init(void)
 		goto timer_init_fail;
 	
 	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+		// frequency is a global module param
 		if (pwm_set_frequency(&pwm_dev[i]))
 			goto timer_init_fail;
 			
@@ -405,7 +407,7 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 	if (!buff) 
 		return -EFAULT;
 
-	/* tell the user there is no more */
+	// for user progs like cat that will keep asking forever
 	if (*offp > 0) 
 		return 0;
 
@@ -460,7 +462,6 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 		goto pwm_write_done;
 	}
 	
-	/* we are only expecting a small integer, ignore anything else */
 	if (count > 8)
 		len = 8;
 	else
@@ -478,7 +479,6 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 
 	pwm_set_us_pulse(pd, us_pulse);
 
-	/* pretend we ate it all */
 	*offp += count;
 
 	error = count;
