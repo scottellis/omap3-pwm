@@ -81,7 +81,8 @@ struct pwm_dev {
 	struct semaphore sem;
 	u32 pwm;
 	u32 mux_offset;
-	u32 gpt_base;
+	u32 phys_base;
+	void __iomem *virt_base;
 	struct clk *clk;
 	u32 input_freq;
 	u32 old_mux;
@@ -105,7 +106,7 @@ static int pwm_init_mux(struct pwm_dev *pd)
 
 	base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
 	if (!base) {
-		printk(KERN_ALERT "pwm_init_mux(): ioremap() failed\n");
+		printk(KERN_ALERT "pwm_init_mux: ioremap failed\n");
 		return -1;
 	}
 
@@ -124,8 +125,8 @@ static int pwm_restore_mux(struct pwm_dev *pd)
 		base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
 	
 		if (!base) {
-			printk(KERN_ALERT "pwm_restore_mux(): ioremap() failed\n");
-			return -1;
+			printk(KERN_ALERT "pwm_restore_mux: ioremap failed\n");
+			return -1; 
 		}
 
 		iowrite16(pd->old_mux, base + pd->mux_offset);
@@ -180,7 +181,7 @@ static int pwm_use_sys_clk(void)
 	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
 
 	if (!base) {
-		printk(KERN_ALERT "pwm_use_sys_clk(): ioremap() failed\n");
+		printk(KERN_ALERT "pwm_use_sys_clk: ioremap failed\n");
 		return -1;
 	}
 
@@ -204,7 +205,7 @@ static int pwm_restore_32k_clk(void)
 	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
 
 	if (!base) {
-		printk(KERN_ALERT "pwm_restore_32k_clk(): ioremap() failed\n");
+		printk(KERN_ALERT "pwm_restore_32k_clk: ioremap failed\n");
 		return -1;
 	}
 
@@ -221,14 +222,6 @@ static int pwm_restore_32k_clk(void)
 
 static int pwm_set_frequency(struct pwm_dev *pd)
 {
-	void __iomem *base;
-
-	base = ioremap(pd->gpt_base, GPT_REGS_PAGE_SIZE);
-	if (!base) {
-		printk(KERN_ALERT "pwm_set_frequency(): ioremap failed\n");
-		return -1;
-	}
-
 	if (frequency <= 0)
 		frequency = DEFAULT_PWM_FREQUENCY;
 	else if (frequency > (pd->input_freq / 2)) 
@@ -238,53 +231,33 @@ static int pwm_set_frequency(struct pwm_dev *pd)
 
 	pd->num_freqs = 0xFFFFFFFE - pd->tldr;	
 
-	iowrite32(pd->tldr, base + GPT_TLDR);
+	iowrite32(pd->tldr, pd->virt_base + GPT_TLDR);
 
 	// initialize TCRR to TLDR, have to start somewhere
-	iowrite32(pd->tldr, base + GPT_TCRR);
-
-	iounmap(base);
+	iowrite32(pd->tldr, pd->virt_base + GPT_TCRR);
 
 	return 0;
 }
 
 static int pwm_off(struct pwm_dev *pd)
 {
-	void __iomem *base;
-
-	base = ioremap(pd->gpt_base, GPT_REGS_PAGE_SIZE);
-	if (!base) {
-		printk(KERN_ALERT "pwm_off(): ioremap failed\n");
-		return -1;
-	}
-
+	pd->tclr = ioread32(pd->virt_base + GPT_TCLR);
 	pd->tclr &= ~GPT_TCLR_ST;
-	iowrite32(pd->tclr, base + GPT_TCLR); 
-	iounmap(base);
-
+	iowrite32(pd->tclr, pd->virt_base + GPT_TCLR); 
+	
 	return 0;
 }
 
 static int pwm_on(struct pwm_dev *pd)
 {
-	void __iomem *base;
-
-	base = ioremap(pd->gpt_base, GPT_REGS_PAGE_SIZE);
-
-	if (!base) {
-		printk(KERN_ALERT "pwm_on(): ioremap failed\n");
-		return -1;
-	}
-
 	/* set the duty cycle */
-	iowrite32(pd->tmar, base + GPT_TMAR);
+	iowrite32(pd->tmar, pd->virt_base + GPT_TMAR);
 	
 	/* now turn it on */
-	pd->tclr = ioread32(base + GPT_TCLR);
+	pd->tclr = ioread32(pd->virt_base + GPT_TCLR);
 	pd->tclr |= GPT_TCLR_ST;
-	iowrite32(pd->tclr, base + GPT_TCLR); 
-	iounmap(base);
-
+	iowrite32(pd->tclr, pd->virt_base + GPT_TCLR); 
+	
 	return 0;
 }
 
@@ -321,6 +294,11 @@ static void pwm_timer_cleanup(void)
 	for (i = 0; i < NUM_PWM_TIMERS; i++) {
 		pwm_free_clock(&pwm_dev[i]);
 		pwm_restore_mux(&pwm_dev[i]);	
+		
+		if (pwm_dev[i].virt_base) {
+			iounmap(pwm_dev[i].virt_base);
+			pwm_dev[i].virt_base = NULL;
+		}
 	}
 }
 
@@ -340,6 +318,14 @@ static int pwm_timer_init(void)
 		goto timer_init_fail;
 	
 	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+		pwm_dev[i].virt_base = ioremap(pwm_dev[i].phys_base, 
+						GPT_REGS_PAGE_SIZE);
+						
+		if (!pwm_dev[i].virt_base)
+			goto timer_init_fail;
+
+		pwm_off(&pwm_dev[i]);
+		
 		// frequency is a global module param
 		if (pwm_set_frequency(&pwm_dev[i]))
 			goto timer_init_fail;
@@ -389,7 +375,7 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 		count = len + 1;
 
 	if (copy_to_user(buff, pd->user_buff, count))  {
-		printk(KERN_ALERT "pwm_read(): copy_to_user() failed\n");
+		printk(KERN_ALERT "pwm_read: copy_to_user failed\n");
 		error = -EFAULT;
 	}
 	else {
@@ -415,7 +401,7 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 		return -ERESTARTSYS;
 
 	if (!buff || count < 1) {
-		printk(KERN_ALERT "pwm_write(): input check failed\n");
+		printk(KERN_ALERT "pwm_write: input check failed\n");
 		error = -EFAULT; 
 		goto pwm_write_done;
 	}
@@ -428,7 +414,7 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 	memset(pd->user_buff, 0, 16);
 
 	if (copy_from_user(pd->user_buff, buff, len)) {
-		printk(KERN_ALERT "pwm_write(): copy_from_user() failed\n"); 
+		printk(KERN_ALERT "pwm_write: copy_from_user failed\n"); 
 		error = -EFAULT; 	
 		goto pwm_write_done;
 	}
@@ -482,7 +468,7 @@ static int __init pwm_init_cdev(struct pwm_dev *pd)
 	error = alloc_chrdev_region(&pd->devt, pd->pwm, 1, "pwm");
 
 	if (error < 0) {
-		printk(KERN_ALERT "alloc_chrdev_region() fail: %d \n", error);
+		printk(KERN_ALERT "alloc_chrdev_region fail: %d \n", error);
 		pd->devt = 0;
 		return -1;
 	}
@@ -492,7 +478,7 @@ static int __init pwm_init_cdev(struct pwm_dev *pd)
 	
 	error = cdev_add(&pd->cdev, pd->devt, 1);
 	if (error) {
-		printk(KERN_ALERT "cdev_add() failed: %d\n", error);
+		printk(KERN_ALERT "cdev_add failed: %d\n", error);
 		unregister_chrdev_region(pd->devt, 1);
 		pd->devt = 0;
 		return -1;
@@ -507,7 +493,7 @@ static int __init pwm_init_class(struct pwm_dev *pd)
 		pwm_class = class_create(THIS_MODULE, "pwm");
 
 		if (!pwm_class) {
-			printk(KERN_ALERT "class_create() failed\n");
+			printk(KERN_ALERT "class_create failed\n");
 			return -1;
 		}
 	}
@@ -546,19 +532,19 @@ static int __init pwm_init(void)
 
 	pwm_dev[0].pwm = 8;
 	pwm_dev[0].mux_offset = GPT8_MUX_OFFSET;
-	pwm_dev[0].gpt_base = PWM8_CTL_BASE;
+	pwm_dev[0].phys_base = PWM8_CTL_BASE;
 
 	pwm_dev[1].pwm = 9;
 	pwm_dev[1].mux_offset = GPT9_MUX_OFFSET;
-	pwm_dev[1].gpt_base = PWM9_CTL_BASE;
+	pwm_dev[1].phys_base = PWM9_CTL_BASE;
 
 	pwm_dev[2].pwm = 10;
 	pwm_dev[2].mux_offset = GPT10_MUX_OFFSET;
-	pwm_dev[2].gpt_base = PWM10_CTL_BASE;
+	pwm_dev[2].phys_base = PWM10_CTL_BASE;
 
 	pwm_dev[3].pwm = 11;
 	pwm_dev[3].mux_offset = GPT11_MUX_OFFSET;
-	pwm_dev[3].gpt_base = PWM11_CTL_BASE;
+	pwm_dev[3].phys_base = PWM11_CTL_BASE;
 
 	for (i = 0; i < NUM_PWM_TIMERS; i++) {
 		pwm_dev[i].tldr = DEFAULT_TLDR;
