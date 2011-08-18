@@ -69,7 +69,13 @@
 
 static int frequency = DEFAULT_PWM_FREQUENCY;
 module_param(frequency, int, S_IRUGO);
-MODULE_PARM_DESC(frequency, "The PWM frequency, power of two, max of 16384");
+MODULE_PARM_DESC(frequency, "PWM frequency, power of two, max of 16384");
+
+#define MAX_TIMERS 4
+static int timers[MAX_TIMERS] = { 8, 9, 10, 11 };
+static int num_timers = 0;
+module_param_array(timers, int, &num_timers, 0000);
+MODULE_PARM_DESC(timers, "List of PWM timers to control");
 
 
 #define USER_BUFF_SIZE	128
@@ -96,8 +102,7 @@ struct pwm_dev {
 // only one class
 struct class *pwm_class;
 
-#define NUM_PWM_TIMERS 4
-static struct pwm_dev pwm_dev[NUM_PWM_TIMERS];
+static struct pwm_dev pwm_dev[MAX_TIMERS];
 
 
 static int pwm_init_mux(struct pwm_dev *pd)
@@ -172,12 +177,37 @@ static void pwm_free_clock(struct pwm_dev *pd)
 	}
 }
 
-/* Change PWM10 and PWM11 to use CM_SYS_CLK rather then CM_32K_CLK */
+#define CLKSEL_GPT11 0x80
+#define CLKSEL_GPT10 0x40
+/*
+ * Changes PWM10 and PWM11 to use the CM_SYS_CLK as a source rather then the
+ * CM_32K_CLK. We override the input_freq we got directly from the clk.
+ * This sucks and is hackish, but I haven't figured out how to do this through
+ * the clock infrastructure. It would nice if I could use something like
+ * clk_sel_rate() or omap2_clksel_set_rate(). No joy so far.
+ */
 static int pwm_use_sys_clk(void)
 {
 	void __iomem *base;
-	u32 val;
+	u32 val, mask, i;
 
+	mask = 0;
+	
+	for (i = 0; i < num_timers; i++) {
+		if (pwm_dev[i].pwm == 10) {
+			mask |= CLKSEL_GPT10;
+			pwm_dev[i].input_freq = CLK_SYS_FREQ;
+		}
+		else if (pwm_dev[i].pwm == 11) {
+			mask |= CLKSEL_GPT11;
+			pwm_dev[i].input_freq = CLK_SYS_FREQ;
+		}
+	}
+
+	// nothing to do
+	if (mask == 0)
+		return 0;
+		
 	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
 
 	if (!base) {
@@ -186,13 +216,10 @@ static int pwm_use_sys_clk(void)
 	}
 
 	val = ioread32(base + CM_CLKSEL_CORE_OFFSET);
-	val |= 0xc0;
+	val |= mask;
 	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
 	iounmap(base);
 
-	pwm_dev[2].input_freq = CLK_SYS_FREQ;
-	pwm_dev[3].input_freq = CLK_SYS_FREQ;
-	
 	return 0;
 }
 
@@ -200,7 +227,7 @@ static int pwm_use_sys_clk(void)
 static int pwm_restore_32k_clk(void)
 {
 	void __iomem *base;
-	u32 val;
+	u32 val, i;
 
 	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
 
@@ -214,8 +241,10 @@ static int pwm_restore_32k_clk(void)
 	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
 	iounmap(base);
 
-	pwm_dev[2].input_freq = CLK_32K_FREQ;
-	pwm_dev[3].input_freq = CLK_32K_FREQ;
+	for (i = 0; i < num_timers; i++) {
+		if (pwm_dev[i].pwm == 10 || pwm_dev[i].pwm == 11)
+			pwm_dev[i].input_freq = CLK_32K_FREQ;
+	}
 	
 	return 0;
 }
@@ -241,7 +270,6 @@ static int pwm_set_frequency(struct pwm_dev *pd)
 
 static int pwm_off(struct pwm_dev *pd)
 {
-	pd->tclr = ioread32(pd->virt_base + GPT_TCLR);
 	pd->tclr &= ~GPT_TCLR_ST;
 	iowrite32(pd->tclr, pd->virt_base + GPT_TCLR); 
 	
@@ -288,10 +316,15 @@ static void pwm_timer_cleanup(void)
 	
 	// since this is called by error handling code, only call this 
 	// function if PWM10 or PWM11 fck is enabled or you might oops
-	if (pwm_dev[2].clk || pwm_dev[3].clk)
-		pwm_restore_32k_clk();
+	for (i = 0; i < num_timers; i++) {
+		if ((pwm_dev[i].pwm == 10 || pwm_dev[i].pwm == 11)
+				&& pwm_dev[i].clk) {
+			pwm_restore_32k_clk();
+			break;
+		}
+	}
 	
-	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+	for (i = 0; i < num_timers; i++) {
 		pwm_free_clock(&pwm_dev[i]);
 		pwm_restore_mux(&pwm_dev[i]);	
 		
@@ -306,18 +339,19 @@ static int pwm_timer_init(void)
 {
 	int i;
 
-	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+	for (i = 0; i < num_timers; i++) {
 		if (pwm_init_mux(&pwm_dev[i]))
 			goto timer_init_fail;
 		
 		if (pwm_enable_clock(&pwm_dev[i]))
-			goto timer_init_fail;
+			goto timer_init_fail;			
 	}
 
+	// not configurable right now, we always use it
 	if (pwm_use_sys_clk()) 
 		goto timer_init_fail;
 	
-	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+	for (i = 0; i < num_timers; i++) {
 		pwm_dev[i].virt_base = ioremap(pwm_dev[i].phys_base, 
 						GPT_REGS_PAGE_SIZE);
 						
@@ -326,7 +360,7 @@ static int pwm_timer_init(void)
 
 		pwm_off(&pwm_dev[i]);
 		
-		// frequency is a global module param
+		// frequency is a global module param for all timers
 		if (pwm_set_frequency(&pwm_dev[i]))
 			goto timer_init_fail;
 	}
@@ -513,40 +547,76 @@ static void pwm_dev_cleanup(void)
 {
 	int i;
 	
-	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+	for (i = 0; i < num_timers; i++) {
 		if (pwm_dev[i].device)
 			device_destroy(pwm_class, pwm_dev[i].devt);
 	}
 	
 	class_destroy(pwm_class);
 	
-	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+	for (i = 0; i < num_timers; i++) {
 		cdev_del(&pwm_dev[i].cdev);
 		unregister_chrdev_region(pwm_dev[i].devt, 1);
 	}			
+}
+
+struct timer_init {
+	u32 pwm;
+	u32 mux_offset;
+	u32 phys_base;
+	u32 used;
+};
+
+static struct timer_init timer_init[MAX_TIMERS] = {
+	{ 8, GPT8_MUX_OFFSET, PWM8_CTL_BASE, 0 },
+	{ 9, GPT9_MUX_OFFSET, PWM9_CTL_BASE, 0 },
+	{ 10, GPT10_MUX_OFFSET, PWM10_CTL_BASE, 0 },
+	{ 11, GPT11_MUX_OFFSET, PWM11_CTL_BASE, 0 }
+};
+	
+static int pwm_init_timer_list(void)
+{
+	int i, j;
+	
+	if (num_timers == 0)
+		num_timers = 4;
+		
+	for (i = 0; i < num_timers; i++) {
+		for (j = 0; j < MAX_TIMERS; j++) {
+			if (timers[i] == timer_init[j].pwm)
+				break;			
+		}
+		
+		if (j == MAX_TIMERS) {
+			printk(KERN_ERR "Invalid timer requested: %d\n", 
+				timers[i]);
+				
+			return -1;
+		}
+		
+		if (timer_init[j].used) {
+			printk(KERN_ERR "Timer %d specified more then once\n",
+				timers[i]);
+			return -1;	
+		}
+		
+		timer_init[j].used = 1;
+		pwm_dev[i].pwm = timer_init[j].pwm;
+		pwm_dev[i].mux_offset = timer_init[j].mux_offset;
+		pwm_dev[i].phys_base = timer_init[j].phys_base;
+	}
+						
+	return 0;			
 }
 
 static int __init pwm_init(void)
 {
 	int i;
 
-	pwm_dev[0].pwm = 8;
-	pwm_dev[0].mux_offset = GPT8_MUX_OFFSET;
-	pwm_dev[0].phys_base = PWM8_CTL_BASE;
-
-	pwm_dev[1].pwm = 9;
-	pwm_dev[1].mux_offset = GPT9_MUX_OFFSET;
-	pwm_dev[1].phys_base = PWM9_CTL_BASE;
-
-	pwm_dev[2].pwm = 10;
-	pwm_dev[2].mux_offset = GPT10_MUX_OFFSET;
-	pwm_dev[2].phys_base = PWM10_CTL_BASE;
-
-	pwm_dev[3].pwm = 11;
-	pwm_dev[3].mux_offset = GPT11_MUX_OFFSET;
-	pwm_dev[3].phys_base = PWM11_CTL_BASE;
-
-	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+	if (pwm_init_timer_list())
+		return -1;
+	
+	for (i = 0; i < num_timers; i++) {
 		pwm_dev[i].tldr = DEFAULT_TLDR;
 		pwm_dev[i].tmar = DEFAULT_TMAR;
 		pwm_dev[i].tclr = DEFAULT_TCLR;
@@ -582,7 +652,7 @@ static void __exit pwm_exit(void)
 	pwm_dev_cleanup();
 	pwm_timer_cleanup();
 	
-	for (i = 0; i < NUM_PWM_TIMERS; i++) {
+	for (i = 0; i < num_timers; i++) {
 		if (pwm_dev[i].user_buff)
 			kfree(pwm_dev[i].user_buff);
 	}
