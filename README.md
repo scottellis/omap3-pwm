@@ -17,11 +17,13 @@ http://gallinazo.flightgear.org/technology/gumstix-overo-rc-servos-and-pwm-signa
 The code should work with any OMAP3 board, but I only tested with Gumstix Overo 
 and Beagleboard.
 
-The [master] branch of this project only implements one PWM channel. The default
-is PWM10. 
+Their are two branches of interest in the project 
 
-The [four-channel] branch of the project implements all 4 PWM channels each with
-their own char dev node. 
+The [master] branch implements a duty-cycles of 0-100% for PWM output.
+The [servo] branch implements a PWM output geared toward servo control.
+
+The rest of this README refers to the [master] branch. Checkout the [servo]
+branch for details on using servo mode outputs.
 
 There is a ${MACHINE}-source-me.txt file that will set up your environment for
 the cross-compilation. It assumes you are using an OE environment and it tries 
@@ -51,20 +53,21 @@ Then
 
 Next copy the pwm.ko file to your board.
 
-These final instructions apply to the [master] branch version of the driver.
-
-The [four-channel] instruction are coming soon.
 
 Once on the system, use insmod to load using the optional frequency parameter.
 The default frequency is 1024 Hz. Use multiples of two with a max of 16384.
 
+The default behavior is for the driver to enable all four PWM timers. You
+can customize this with a timers=<timer list> where timer list is a comma
+separated list of the numbers 8-11.
+
 	root@overo# ls
 	pwm.ko
 
-	root@overo# insmod pwm.ko
+	root@overo# insmod pwm.ko timers=8,10
 
 The driver implements a character device interface. When it loads, it will 
-create a /dev/pwm10 entry.
+create /dev/pwmXX entries for each of the timers specified.
  
 Then to issue commands you can use any program that can do file I/O. 
 cat and echo will work. 
@@ -86,7 +89,15 @@ You can put an oscope on pin 28 of the expansion board to see the signal.
 Use pin 15 for ground. Or you can measure the voltage on pin 28 and you'll
 see the duty cycle percentage of 1.8v.
 
-You have to unload and reload the module to change the frequency.
+Here are the expansion board pins for all the PWM timers
+
+PWM8  (gpio_147) : pin 29
+PWM9  (gpio_144) : pin 30
+PWM10 (gpio_145) : pin 28
+PWM11 (gpio_146) : pin 27
+
+You have to unload and reload the module to change the frequency or the active
+timers.
 
 	root@overo:~# rmmod pwm  
 
@@ -95,12 +106,16 @@ You have to unload and reload the module to change the frequency.
 	root@overo:~# cat /dev/pwm10
 	PWM10 Frequency 2048 Hz Stopped
 
-The driver takes care of muxing the output pin correctly and restores the original
-muxing when it unloads. The default muxing by Gumstix for the PWM pins is to be
-GPIO. 
+The driver takes care of muxing the output pins correctly and restores the 
+original muxing when it unloads. The default muxing by Gumstix for the PWM 
+pins is to be GPIO. 
 
-For now, if you want to change which timer is being used, look at pwm_init().
+The driver also switches PWM10 and PWM11 to use a 13MHz clock for the source
+similar to what PWM8 and PWM9 use by default. This is currently not 
+configurable.
 
+Gumstix Note: GPIO 144 and 145, PWM 9 and 10, are used with the lcd displays.
+See board-overo.c in your kernel source for details.
 
 
 BEAGLEBOARD Note: The kernel config option CONFIG_OMAP_RESET_CLOCKS is enabled
