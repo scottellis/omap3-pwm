@@ -1,15 +1,22 @@
   omap3 pwm driver
 =======
 
-Implements a driver to easily test the PWM outputs of an OMAP3 based Linux
-system from userspace.
+Implements a driver to test the PWM outputs of an OMAP3 based Linux system from
+userspace.
 
-The TI TRM is the reference for all this. I did put a few notes I collected
-for the OMAP3 PWM timers over here:
+Developers
+-------
+Scott Ellis
+Jack Elston
+Curtis Olson
+
+The TI TRM is the reference for all this. 
+
+Scott Ellis has some notes for the OMAP3 PWM timers here
 
 http://www.jumpnowtek.com/index.php?option=com_content&view=article&id=56&Itemid=63
 
-Curtis Olson, a co-author of this code, has a relevant PWM article here
+Curtis Olson has a relevant PWM/servo article here
 
 http://gallinazo.flightgear.org/technology/gumstix-overo-rc-servos-and-pwm-signal-generation/
 
@@ -32,30 +39,30 @@ to be generic enough for both userland and kernel/module stuff.
 You should modify or create a similar script for pointing to the build system 
 you are using.
 
-If you modified your OE temp directory, then also update the OETMP variable in 
-the appropriate ${MACHINE}-source-me.txt. I kind of tested overo and beagleboard, 
-but I don't normally use the defaults.
+If you have your OE temp directory in a non-standard location, then export an
+OETMP variable with the path before sourcing the overo-source-me.txt file. 
 
 Follow these steps to build. Using an overo for the example.
 
 	$ git clone git://github.com/scottellis/omap3-pwm.git
 	$ cd omap3-pwm
 
-If you want to build the [four-channel] branch use git to check it out now.
+If you want to build the [servo] branch use git to check it out now.
 
-	$ git checkout -b four-channel origin/four-channel
+	$ git checkout -b servo origin/four-channel
 
 Then
 
-	$ <edit> overo-source-me.txt
+	$ [optional] export OETMP=/<your-oetmp-path>
 	$ source overo-source-me.txt
 	$ make 
 
-Next copy the pwm.ko file to your board.
+Then copy the pwm.ko file to your board.
 
 
-Once on the system, use insmod to load using the optional frequency parameter.
-The default frequency is 1024 Hz. Use multiples of two with a max of 16384.
+Once on the system, use insmod to load using the optional frequency and timers
+parameters. The default frequency is 1024 Hz. Use multiples of two with a max 
+of 16384.
 
 The default behavior is for the driver to enable all four PWM timers. You
 can customize this with a timers=<timer list> where timer list is a comma
