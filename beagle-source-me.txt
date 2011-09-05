@@ -1,31 +1,23 @@
-if [[ -z "${KERNEL_CROSS_BUILD_ENVIRONMENT_SOURCED}" ]]; then
+MACHINE=beagleboard
 
-	MACHINE=beagleboard
-
-	# normally OETMP will be ${OETREE}/tmp, but really it is whatever TMPDIR
-	# in ${OETREE}/build/conf/local.conf points to.
-	OETMP=${OETREE}/tmp
-	# OETMP=/beagle
-
-	SYSROOTSDIR=${OETMP}/sysroots
-	STAGEDIR=${SYSROOTSDIR}/`uname -m`-linux/usr
-
-	export KERNELDIR=${SYSROOTSDIR}/${MACHINE}-angstrom-linux-gnueabi/kernel
-
-	PATH=${PATH}:${STAGEDIR}/bin:${STAGEDIR}/armv7a/bin
-
-	unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS MACHINE
-
-	export ARCH="arm"
-	export CROSS_COMPILE="arm-angstrom-linux-gnueabi-"
-	export CC="arm-angstrom-linux-gnueabi-gcc"
-	export LD="arm-angstrom-linux-gnueabi-ld"
-	export STRIP="arm-angstrom-linux-gnueabi-strip"
-
-	export KERNEL_CROSS_BUILD_ENVIRONMENT_SOURCED="true"
-
-	echo "Altered environment for cross building a kernel module with OE tools."
-else
-	echo "Cross build environment already configured."
+# export an alternative OETMP before sourcing this file if you don't want
+# the default defined by ${OE_BASE}/build/conf/local.conf:TMPDIR
+if [[ -z "${OETMP}" ]]; then
+	OETMP=${OE_BUILD_TMPDIR}
 fi
+
+SYSROOTSDIR=${OETMP}/sysroots
+STAGEDIR=${SYSROOTSDIR}/`uname -m`-linux/usr
+
+export KERNELDIR=${SYSROOTSDIR}/${MACHINE}-angstrom-linux-gnueabi/kernel
+
+PATH=${PATH}:${STAGEDIR}/bin:${STAGEDIR}/armv7a/bin
+
+unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS MACHINE
+
+export ARCH="arm"
+export CROSS_COMPILE="arm-angstrom-linux-gnueabi-"
+export CC="arm-angstrom-linux-gnueabi-gcc"
+export LD="arm-angstrom-linux-gnueabi-ld"
+export STRIP="arm-angstrom-linux-gnueabi-strip"
 
