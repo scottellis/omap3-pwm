@@ -237,7 +237,7 @@ static int pwm_restore_32k_clk(void)
 	}
 
 	val = ioread32(base + CM_CLKSEL_CORE_OFFSET);
-	val &= ~0xc0;
+	val &= ~(CLKSEL_GPT10 | CLKSEL_GPT11);
 	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
 	iounmap(base);
 
