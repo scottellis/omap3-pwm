@@ -21,7 +21,7 @@ http://gallinazo.flightgear.org/technology/gumstix-overo-rc-servos-and-pwm-signa
 The code should work with any OMAP3 board, but was only tested with Gumstix Overo 
 and Beagleboard.
 
-Their are two branches of interest in the project 
+There are two branches of interest in the project 
 
 The [master] branch implements a duty-cycles of 0-100% for PWM output.
 
