@@ -57,25 +57,25 @@ Once on the system, use insmod to load using the optional parameters.
 
 Driver parameters
 
-<timers> - A comma separated list of the timers to use, 8-11. The driver will create
+*timers* - A comma separated list of the timers to use, 8-11. The driver will create
 /dev/pwmXX devices for each timer you enable. The default is all 4 timers.
 
 Example: timers=8,9,10,11
 
-frequency - non-servo mode only, specify the frequency of the pwm pulse, the default
+*frequency* - non-servo mode only, specify the frequency of the pwm pulse, the default
 is 1024, the max is 13Mhz / 2.
 
 Example: frequency=1024
 
-servo - Whether to enable servo mode. Values 0 or 1, default is 0.
+*servo* - Whether to enable servo mode. Values 0 or 1, default is 0.
 
 Example: servo=1
 
-servo_min - Minimum value for servo pulse in tenths of microseconds. Default is 10000 representing 1 ms.
+*servo_min* - Minimum value for servo pulse in tenths of microseconds. Default is 10000 representing 1 ms.
 
 Example: servo_min = 12000
 
-servo_max - Maximum value for servo pulse in tenths of microseconds. Default is 20000, representing 2 ms.
+*servo_max* - Maximum value for servo pulse in tenths of microseconds. Default is 20000, representing 2 ms.
 
 Example: servo_max = 18000
 
@@ -87,10 +87,10 @@ Here is an example session with the driver.
 
 	root@overo# insmod pwm.ko timers=8,10
 
-The driver will install /dev/pwm8 and /dev/pwm10 in duty-cycle mode with this command.
+The driver will create /dev/pwm8 and /dev/pwm10 in duty-cycle mode.
 
-To issue commands you can use any program that can do file I/O. The standard programs
-cat and echo will work. 
+To issue commands you can use any program that can do file I/O. 
+The standard programs utilities cat and echo will work. 
 
 	root@overo# cat /dev/pwm10
 	0
@@ -105,7 +105,7 @@ cat and echo will work.
 	root@overo:~# cat /dev/pwm10
 	80
 
-Duty cycle settings are in the range 0-100.
+In duty-cycle mode, valid settings are in the range 0-100.
 
 You can put an oscope on pin 28 of the Overo expansion board to see the signal for pwm10.
 Use pin 15 for ground. Or you can measure the voltage on pin 28 and you'll see the duty 
@@ -113,10 +113,10 @@ cycle percentage of 1.8v.
 
 Here are the expansion board pins for all the PWM timers
 
-PWM8  (gpio_147) : pin 29
-PWM9  (gpio_144) : pin 30
-PWM10 (gpio_145) : pin 28
-PWM11 (gpio_146) : pin 27
+	PWM8  (gpio_147) : pin 29
+	PWM9  (gpio_144) : pin 30
+	PWM10 (gpio_145) : pin 28
+	PWM11 (gpio_146) : pin 27
 
 You have to unload and reload the module to change any of the module parameters.
 
@@ -138,7 +138,7 @@ the standard zero position for servos.
 	root@overo:~# cat /dev/pwm8
 	15000
 
-Remember in servo mode the driver wants settings in tenths of microseconds and the default
+In servo mode the driver wants settings in tenths of microseconds and the default
 range is 10000 to 20000.
 
 
