@@ -65,17 +65,31 @@
 /* default TCLR is off state */
 #define DEFAULT_TCLR (GPT_TCLR_PT | GPT_TCLR_TRG_OVFL_MATCH | GPT_TCLR_CE | GPT_TCLR_AR) 
 
-#define DEFAULT_PWM_FREQUENCY 50
-
-static int frequency = DEFAULT_PWM_FREQUENCY;
+static int frequency = 0;
 module_param(frequency, int, S_IRUGO);
-MODULE_PARM_DESC(frequency, "PWM frequency, power of two, max of 16384");
+MODULE_PARM_DESC(frequency, "PWM frequency");
 
 #define MAX_TIMERS 4
 static int timers[MAX_TIMERS] = { 8, 9, 10, 11 };
 static int num_timers = 0;
 module_param_array(timers, int, &num_timers, 0000);
 MODULE_PARM_DESC(timers, "List of PWM timers to control");
+
+static int servo = 0;
+module_param(servo, int, S_IRUGO);
+MODULE_PARM_DESC(servo, "Enable servo mode operation");
+
+#define SERVO_ABSOLUTE_MIN 10000
+#define SERVO_ABSOLUTE_MAX 20000
+#define SERVO_CENTER 15000
+
+static int servo_min = 10000;
+module_param(servo_min, int, S_IRUGO);
+MODULE_PARM_DESC(servo_min, "Servo min value in tenths of usec, default 10000");
+
+static int servo_max = 20000;
+module_param(servo_max, int, S_IRUGO);
+MODULE_PARM_DESC(servo_max, "Servo max value in tenths of usec, default 20000");
 
 
 #define USER_BUFF_SIZE	128
@@ -96,6 +110,7 @@ struct pwm_dev {
 	u32 tmar;
 	u32 tclr;
 	u32 num_freqs;
+	u32 current_val;
 	char *user_buff;
 };
 
@@ -237,7 +252,7 @@ static int pwm_restore_32k_clk(void)
 	}
 
 	val = ioread32(base + CM_CLKSEL_CORE_OFFSET);
-	val &= ~0xc0;
+	val &= ~(CLKSEL_GPT10 | CLKSEL_GPT11);
 	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
 	iounmap(base);
 
@@ -251,9 +266,7 @@ static int pwm_restore_32k_clk(void)
 
 static int pwm_set_frequency(struct pwm_dev *pd)
 {
-	if (frequency <= 0)
-		frequency = DEFAULT_PWM_FREQUENCY;
-	else if (frequency > (pd->input_freq / 2)) 
+	if (frequency > (pd->input_freq / 2)) 
 		frequency = pd->input_freq / 2;
 
 	pd->tldr = 0xFFFFFFFF - ((pd->input_freq / frequency) - 1);
@@ -272,6 +285,8 @@ static int pwm_off(struct pwm_dev *pd)
 {
 	pd->tclr &= ~GPT_TCLR_ST;
 	iowrite32(pd->tclr, pd->virt_base + GPT_TCLR); 
+
+	pd->current_val = 0;
 	
 	return 0;
 }
@@ -289,14 +304,19 @@ static int pwm_on(struct pwm_dev *pd)
 	return 0;
 }
 
-static int pwm_set_duty_cycle(struct pwm_dev *pd, unsigned int duty_cycle) 
+static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle) 
 {
-	unsigned int new_tmar;
+	u32 new_tmar;
 
-	pwm_off(pd);
+	if (duty_cycle > 100)
+		return -EINVAL;
 
-	if (duty_cycle == 0)
+	pd->current_val = duty_cycle;
+
+	if (duty_cycle == 0) {
+		pwm_off(pd);
 		return 0;
+	}
  
 	new_tmar = (duty_cycle * pd->num_freqs) / 100;
 
@@ -306,7 +326,29 @@ static int pwm_set_duty_cycle(struct pwm_dev *pd, unsigned int duty_cycle)
 		new_tmar = pd->num_freqs;
 		
 	pd->tmar = pd->tldr + new_tmar;
+
+	return pwm_on(pd);
+}
+
+static int pwm_set_servo_pulse(struct pwm_dev *pd, u32 tenths_us)
+{
+	u32 new_tmar, factor;
 	
+	if (tenths_us < servo_min || tenths_us > servo_max) 
+		return -EINVAL;
+
+	pd->current_val = tenths_us;
+		
+	factor = 10000000 / (frequency * 2);
+	new_tmar = (tenths_us * (pd->num_freqs / 2)) / factor;
+	
+	if (new_tmar < 1)
+		new_tmar = 1;
+	else if (new_tmar > pd->num_freqs)
+		new_tmar = pd->num_freqs;
+		
+	pd->tmar = pd->tldr + new_tmar;
+
 	return pwm_on(pd);
 }
 
@@ -363,6 +405,9 @@ static int pwm_timer_init(void)
 		// frequency is a global module param for all timers
 		if (pwm_set_frequency(&pwm_dev[i]))
 			goto timer_init_fail;
+
+		if (servo)
+			pwm_set_servo_pulse(&pwm_dev[i], SERVO_CENTER);
 	}
 
 	return 0;
@@ -378,8 +423,7 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 			loff_t *offp)
 {
 	size_t len;
-	unsigned int duty_cycle;
-	ssize_t error;
+	ssize_t status;
 	struct pwm_dev *pd = filp->private_data;
 
 	if (!buff) 
@@ -393,16 +437,10 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 		return -ERESTARTSYS;
 
 	if (pd->tclr & GPT_TCLR_ST) {
-		duty_cycle = (100 * (pd->tmar - pd->tldr)) / pd->num_freqs;
-
-		len = snprintf(pd->user_buff, USER_BUFF_SIZE,
-				"PWM%d Frequency %u Hz Duty Cycle %u%%\n",
-				pd->pwm, frequency, duty_cycle);
+		len = sprintf(pd->user_buff, "%u\n", pd->current_val); 
 	}
 	else {
-		len = snprintf(pd->user_buff, USER_BUFF_SIZE,
-				"PWM%d Frequency %u Hz Stopped\n",
-				pd->pwm, frequency);
+		len = sprintf(pd->user_buff, "%u\n", pd->current_val); 
 	}
 
 	if (len + 1 < count) 
@@ -410,24 +448,24 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 
 	if (copy_to_user(buff, pd->user_buff, count))  {
 		printk(KERN_ALERT "pwm_read: copy_to_user failed\n");
-		error = -EFAULT;
+		status = -EFAULT;
 	}
 	else {
 		*offp += count;
-		error = count;
+		status = count;
 	}
 
 	up(&pd->sem);
 
-	return error;	
+	return status;	
 }
 
 static ssize_t pwm_write(struct file *filp, const char __user *buff, 
 			size_t count, loff_t *offp)
 {
 	size_t len;
-	unsigned int duty_cycle;
-	ssize_t error = 0;
+	u32 val;
+	ssize_t status = 0;
 
 	struct pwm_dev *pd = filp->private_data;
 	
@@ -436,7 +474,7 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 
 	if (!buff || count < 1) {
 		printk(KERN_ALERT "pwm_write: input check failed\n");
-		error = -EFAULT; 
+		status = -EFAULT; 
 		goto pwm_write_done;
 	}
 	
@@ -449,23 +487,27 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 
 	if (copy_from_user(pd->user_buff, buff, len)) {
 		printk(KERN_ALERT "pwm_write: copy_from_user failed\n"); 
-		error = -EFAULT; 	
+		status = -EFAULT; 	
 		goto pwm_write_done;
 	}
 
-	duty_cycle = simple_strtoul(pd->user_buff, NULL, 0);
+	val = simple_strtoul(pd->user_buff, NULL, 0);
 
-	pwm_set_duty_cycle(pd, duty_cycle);
+	if (servo)
+		status = pwm_set_servo_pulse(pd, val);
+	else
+		status = pwm_set_duty_cycle(pd, val);
 
 	*offp += count;
 
-	error = count;
+	if (!status)
+		status = count;
 
 pwm_write_done:
 
 	up(&pd->sem);
 	
-	return error;
+	return status;
 }
 
 static int pwm_open(struct inode *inode, struct file *filp)
@@ -630,9 +672,38 @@ static int __init pwm_init(void)
 			goto init_fail;
 	}
 
+	if (servo)
+		frequency = 50;
+	else if (frequency <= 0)
+		frequency = 1024;
+
+
+	if (servo) {
+		if (servo_min < SERVO_ABSOLUTE_MIN)
+			servo_min = SERVO_ABSOLUTE_MIN;
+
+		if (servo_max > SERVO_ABSOLUTE_MAX)
+			servo_max = SERVO_ABSOLUTE_MAX;
+
+		if (servo_min >= servo_max) {
+			servo_min = SERVO_ABSOLUTE_MIN;
+			servo_max = SERVO_ABSOLUTE_MAX;
+		}
+	}
+
 	if (pwm_timer_init())
 		goto init_fail_2;
 
+	if (servo) {
+		printk(KERN_INFO 
+			"pwm: frequency=%d Hz servo=%d servo_min = %d servo_max = %d\n",
+			frequency, servo, servo_min, servo_max);
+	}
+	else {
+		printk(KERN_INFO "pwm: frequency=%d Hz  servo=%d\n",
+			frequency, servo);
+	}
+	
 	return 0;
 	
 init_fail_2:	
