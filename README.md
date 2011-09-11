@@ -71,11 +71,11 @@ Example: frequency=1024
 
 Example: servo=1
 
-*servo_min* - Minimum value for servo pulse in tenths of microseconds. Default is 10000 representing 1 ms.
+*servo_min* - Minimum value for servo pulse in tenths of microseconds. The default is 10000 representing 1 ms.
 
 Example: servo_min = 12000
 
-*servo_max* - Maximum value for servo pulse in tenths of microseconds. Default is 20000, representing 2 ms.
+*servo_max* - Maximum value for servo pulse in tenths of microseconds. The default is 20000 representing 2 ms.
 
 Example: servo_max = 18000
 
@@ -90,7 +90,7 @@ Here is an example session with the driver.
 The driver will create /dev/pwm8 and /dev/pwm10 in duty-cycle mode.
 
 To issue commands you can use any program that can do file I/O. 
-The standard programs utilities cat and echo will work. 
+The standard utilities cat and echo will work. 
 
 	root@overo# cat /dev/pwm10
 	0
@@ -124,8 +124,8 @@ You have to unload and reload the module to change any of the module parameters.
 
 	root@overo:~# insmod pwm.ko servo=1
 
-So that insmod would tell the driver to create all 4 PWM devices, /dev/pwm8-11
-in servo mode. Servo mode 
+This module load tells the driver to create all 4 PWM devices, /dev/pwm8-11,
+in servo mode. 
 
 	root@overo:~# echo 12500 > /dev/pwm9
 	
@@ -138,20 +138,22 @@ the standard zero position for servos.
 	root@overo:~# cat /dev/pwm8
 	15000
 
-In servo mode the driver wants settings in tenths of microseconds and the default
-range is 10000 to 20000.
+In servo mode the driver wants settings in tenths of microseconds with the default
+range of 10000 to 20000.
 
 
-The driver takes care of muxing the output pins correctly and restores the 
-original muxing when it unloads. The default muxing by Gumstix for the PWM 
-pins is to be GPIO. 
+The driver takes care of muxing the output pins correctly for the Overo
+boards and restores the original muxing when it unloads. The default muxing
+by Gumstix for the PWM pins is to be GPIO. 
 
 The driver also switches PWM10 and PWM11 to use a 13MHz clock for the source
 similar to what PWM8 and PWM9 use by default. This is currently not 
 configurable.
 
-Gumstix Note: GPIO 144 and 145, PWM 9 and 10, are used with the lcd displays.
-See board-overo.c in your kernel source for details.
+Gumstix Note: GPIO 144 and 145, PWM 9 and 10, are used with the lcd touchscreen
+displays. See board-overo.c in your kernel source for details. You probably don't
+want to use PWM 9 and 10 at the same time you are using an lcd. I haven't tried
+it.
 
 
 BEAGLEBOARD Note: The kernel config option CONFIG_OMAP_RESET_CLOCKS is enabled
