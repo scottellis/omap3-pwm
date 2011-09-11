@@ -23,18 +23,8 @@
  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
 
-/*
- Modification summary:
-
- Original version by Scott Ellis
-
- Updated by Jack Elston to support all 4 hardware PWM signal generators
- and create a separate /dev entry for individual control.
-
- Updated by Curt Olson to support smaller granularity clock on PWM 10 & 11
- (based on Scott Ellis's older pulse.c code)
+ Authors: Scott Ellis, Jack Elston, Curt Olson
 */
 
 #include <linux/init.h> 
