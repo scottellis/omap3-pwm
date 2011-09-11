@@ -1,61 +1,67 @@
   omap3 pwm driver
 =======
 
-Implements a driver to easily test the PWM outputs of an OMAP3 based Linux
-system from userspace.
+Implements a driver to test the PWM outputs of an OMAP3 based Linux system from userspace.
 
-The TI TRM is the reference for all this. I did put a few notes I collected
-for the OMAP3 PWM timers over here:
+Developers
+-------
+Scott Ellis, Jack Elston, Curtis Olson
+
+The TI TRM is the reference for all this. 
+
+I have some notes for the OMAP3 PWM timers here
 
 http://www.jumpnowtek.com/index.php?option=com_content&view=article&id=56&Itemid=63
 
-Curtis Olson, a co-author of this code, has a relevant PWM article here
+Curtis Olson has a relevant PWM/servo article here
 
 http://gallinazo.flightgear.org/technology/gumstix-overo-rc-servos-and-pwm-signal-generation/
 
 
-The code should work with any OMAP3 board, but I only tested with Gumstix Overo 
+The code should work with any OMAP3 board, but was only tested with Gumstix Overo 
 and Beagleboard.
 
-Their are two branches of interest in the project 
+There are two branches of interest in the project 
 
 The [master] branch implements a duty-cycles of 0-100% for PWM output.
+
 The [servo] branch implements a PWM output geared toward servo control.
 
+
 The rest of this README refers to the [master] branch. Checkout the [servo]
-branch for details on using servo mode outputs.
+branch and the README there for details on using servo mode outputs.
 
 There is a ${MACHINE}-source-me.txt file that will set up your environment for
-the cross-compilation. It assumes you are using an OE environment and it tries 
-to be generic enough for both userland and kernel/module stuff. 
+the cross-compilation. It assumes you are using an OE environment. 
+Adjust for the build system you are using.
 
-You should modify or create a similar script for pointing to the build system 
-you are using.
 
-If you modified your OE temp directory, then also update the OETMP variable in 
-the appropriate ${MACHINE}-source-me.txt. I kind of tested overo and beagleboard, 
-but I don't normally use the defaults.
-
-Follow these steps to build. Using an overo for the example.
+Follow these steps to build.
 
 	$ git clone git://github.com/scottellis/omap3-pwm.git
 	$ cd omap3-pwm
 
-If you want to build the [four-channel] branch use git to check it out now.
+If you want to build the [servo] branch, use git to check it out now.
 
-	$ git checkout -b four-channel origin/four-channel
+	$ git checkout -b servo origin/servo
+
+If you have your OE temp directory in a non-standard location, then export an
+OETMP variable with the path before sourcing the overo-source-me.txt file. 
+
+	$ [optional] export OETMP=/<your-oetmp-path>
 
 Then
 
-	$ <edit> overo-source-me.txt
 	$ source overo-source-me.txt
 	$ make 
 
-Next copy the pwm.ko file to your board.
+
+Copy the pwm.ko file to your board.
 
 
-Once on the system, use insmod to load using the optional frequency parameter.
-The default frequency is 1024 Hz. Use multiples of two with a max of 16384.
+Once on the system, use insmod to load using the optional frequency and timers
+parameters. The default frequency is 1024 Hz. Use multiples of two with a max 
+of 16384.
 
 The default behavior is for the driver to enable all four PWM timers. You
 can customize this with a timers=<timer list> where timer list is a comma
@@ -85,9 +91,9 @@ cat and echo will work.
 	root@overo:~# cat /dev/pwm10
 	PWM10 Frequency 1024 Hz Duty Cycle 80%
 
-You can put an oscope on pin 28 of the expansion board to see the signal.
-Use pin 15 for ground. Or you can measure the voltage on pin 28 and you'll
-see the duty cycle percentage of 1.8v.
+You can put an oscope on pin 28 of the Overo expansion board to see the signal for pwm10.
+Use pin 15 for ground. Or you can measure the voltage on pin 28 and you'll see the duty 
+cycle percentage of 1.8v.
 
 Here are the expansion board pins for all the PWM timers
 
