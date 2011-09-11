@@ -18,18 +18,15 @@ Curtis Olson has a relevant PWM/servo article here
 http://gallinazo.flightgear.org/technology/gumstix-overo-rc-servos-and-pwm-signal-generation/
 
 
-The code should work with any OMAP3 board, but was only tested with Gumstix Overo 
-and Beagleboard.
+The code should work with any OMAP3 board, but primarily tested with Gumstix Overos, a little
+testing with Beagleboards.
 
-There are two branches of interest in the project 
+The driver has two modes.
 
-The [master] branch implements a duty-cycles of 0-100% for PWM output.
+Duty-cycle (default) - generates PWM signals with outputs in the range 0-100 duty cycle.
 
-The [servo] branch implements a PWM output geared toward servo control.
+Servo mode - runs at 50 Hz, generating pulses from 1-2 ms in duration
 
-
-The rest of this README refers to the [master] branch. Checkout the [servo]
-branch and the README there for details on using servo mode outputs.
 
 There is a ${MACHINE}-source-me.txt file that will set up your environment for
 the cross-compilation. It assumes you are using an OE environment. 
@@ -41,9 +38,6 @@ Follow these steps to build.
 	$ git clone git://github.com/scottellis/omap3-pwm.git
 	$ cd omap3-pwm
 
-If you want to build the [servo] branch, use git to check it out now.
-
-	$ git checkout -b servo origin/servo
 
 If you have your OE temp directory in a non-standard location, then export an
 OETMP variable with the path before sourcing the overo-source-me.txt file. 
@@ -59,37 +53,59 @@ Then
 Copy the pwm.ko file to your board.
 
 
-Once on the system, use insmod to load using the optional frequency and timers
-parameters. The default frequency is 1024 Hz. Use multiples of two with a max 
-of 16384.
+Once on the system, use insmod to load using the optional parameters.
 
-The default behavior is for the driver to enable all four PWM timers. You
-can customize this with a timers=<timer list> where timer list is a comma
-separated list of the numbers 8-11.
+Driver parameters
+
+<timers> - A comma separated list of the timers to use, 8-11. The driver will create
+/dev/pwmXX devices for each timer you enable. The default is all 4 timers.
+
+Example: timers=8,9,10,11
+
+frequency - non-servo mode only, specify the frequency of the pwm pulse, the default
+is 1024, the max is 13Mhz / 2.
+
+Example: frequency=1024
+
+servo - Whether to enable servo mode. Values 0 or 1, default is 0.
+
+Example: servo=1
+
+servo_min - Minimum value for servo pulse in tenths of microseconds. Default is 10000 representing 1 ms.
+
+Example: servo_min = 12000
+
+servo_max - Maximum value for servo pulse in tenths of microseconds. Default is 20000, representing 2 ms.
+
+Example: servo_max = 18000
+
+
+Here is an example session with the driver.
 
 	root@overo# ls
 	pwm.ko
 
 	root@overo# insmod pwm.ko timers=8,10
 
-The driver implements a character device interface. When it loads, it will 
-create /dev/pwmXX entries for each of the timers specified.
- 
-Then to issue commands you can use any program that can do file I/O. 
+The driver will install /dev/pwm8 and /dev/pwm10 in duty-cycle mode with this command.
+
+To issue commands you can use any program that can do file I/O. The standard programs
 cat and echo will work. 
 
 	root@overo# cat /dev/pwm10
-	PWM10 Frequency 1024 Hz Stopped
+	0
 
 	root@overo# echo 50 > /dev/pwm10
 
 	root@overo:~# cat /dev/pwm10
-	PWM10 Frequency 1024 Hz Duty Cycle 50%
+	50
 
 	root@overo:~# echo 80 > /dev/pwm10
 
 	root@overo:~# cat /dev/pwm10
-	PWM10 Frequency 1024 Hz Duty Cycle 80%
+	80
+
+Duty cycle settings are in the range 0-100.
 
 You can put an oscope on pin 28 of the Overo expansion board to see the signal for pwm10.
 Use pin 15 for ground. Or you can measure the voltage on pin 28 and you'll see the duty 
@@ -102,15 +118,29 @@ PWM9  (gpio_144) : pin 30
 PWM10 (gpio_145) : pin 28
 PWM11 (gpio_146) : pin 27
 
-You have to unload and reload the module to change the frequency or the active
-timers.
+You have to unload and reload the module to change any of the module parameters.
 
 	root@overo:~# rmmod pwm  
 
-	root@overo:~# insmod pwm.ko frequency=2048
+	root@overo:~# insmod pwm.ko servo=1
 
-	root@overo:~# cat /dev/pwm10
-	PWM10 Frequency 2048 Hz Stopped
+So that insmod would tell the driver to create all 4 PWM devices, /dev/pwm8-11
+in servo mode. Servo mode 
+
+	root@overo:~# echo 12500 > /dev/pwm9
+	
+	root@overo:~# cat /dev/pwm9
+	12500
+
+In servo mode the driver starts all PWM at 15000 or 1.5 ms pulse duration which is
+the standard zero position for servos.
+
+	root@overo:~# cat /dev/pwm8
+	15000
+
+Remember in servo mode the driver wants settings in tenths of microseconds and the default
+range is 10000 to 20000.
+
 
 The driver takes care of muxing the output pins correctly and restores the 
 original muxing when it unloads. The default muxing by Gumstix for the PWM 
