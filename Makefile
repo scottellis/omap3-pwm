@@ -13,7 +13,7 @@ else
 endif
 
 install:
-	scp pwm.ko root@192.168.10.113:/home/root
+	scp pwm.ko root@192.168.10.106:/home/root
 
 
 clean:
