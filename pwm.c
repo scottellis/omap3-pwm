@@ -45,6 +45,10 @@
 /* default TCLR is off state */
 #define DEFAULT_TCLR (GPT_TCLR_PT | GPT_TCLR_TRG_OVFL_MATCH | GPT_TCLR_CE | GPT_TCLR_AR) 
 
+static int nomux = 0;
+module_param(nomux, int, S_IRUGO);
+MODULE_PARM_DESC(nomux, "Do not mux the PWM pins");
+
 static int frequency = 0;
 module_param(frequency, int, S_IRUGO);
 MODULE_PARM_DESC(frequency, "PWM frequency");
@@ -107,6 +111,9 @@ static int pwm_init_mux(struct pwm_dev *pd)
 {
 	void __iomem *base;
 
+	if (nomux)
+		return 0;
+
 	base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
 	if (!base) {
 		printk(KERN_ALERT "pwm_init_mux: ioremap failed\n");
@@ -123,6 +130,9 @@ static int pwm_init_mux(struct pwm_dev *pd)
 static int pwm_restore_mux(struct pwm_dev *pd)
 {
 	void __iomem *base;
+
+	if (nomux)
+		return 0;
 
 	if (pd->old_mux) {
 		base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
