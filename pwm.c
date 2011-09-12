@@ -63,14 +63,17 @@ MODULE_PARM_DESC(servo, "Enable servo mode operation");
 #define SERVO_ABSOLUTE_MAX 20000
 #define SERVO_CENTER 15000
 
-static int servo_min = 10000;
+static int servo_min = SERVO_ABSOLUTE_MIN; 
 module_param(servo_min, int, S_IRUGO);
 MODULE_PARM_DESC(servo_min, "Servo min value in tenths of usec, default 10000");
 
-static int servo_max = 20000;
+static int servo_max = SERVO_ABSOLUTE_MAX;
 module_param(servo_max, int, S_IRUGO);
 MODULE_PARM_DESC(servo_max, "Servo max value in tenths of usec, default 20000");
 
+static int servo_start = SERVO_CENTER;
+module_param(servo_start, int, S_IRUGO);
+MODULE_PARM_DESC(servo_start, "Servo value on startup in tenths of usec, default 15000");
 
 #define USER_BUFF_SIZE	128
 
@@ -387,7 +390,7 @@ static int pwm_timer_init(void)
 			goto timer_init_fail;
 
 		if (servo)
-			pwm_set_servo_pulse(&pwm_dev[i], SERVO_CENTER);
+			pwm_set_servo_pulse(&pwm_dev[i], servo_start);
 	}
 
 	return 0;
@@ -667,6 +670,11 @@ static int __init pwm_init(void)
 			servo_min = SERVO_ABSOLUTE_MIN;
 			servo_max = SERVO_ABSOLUTE_MAX;
 		}
+
+		if (servo_start < servo_min)
+			servo_start = servo_min;
+		else if (servo_start > servo_max)
+			servo_start = servo_max; 
 	}
 
 	if (pwm_timer_init())
