@@ -42,16 +42,6 @@
 
 #include "pwm.h"
 
-/* default frequency of 1 kHz */
-#define DEFAULT_TLDR	0xFFFFFFE0
-
-/* default frequency of 50 Hz */
-//#define DEFAULT_TLDR	0xFFFFFC9E
-
-/* default 50% duty cycle */
-/* TMAR = (0xFFFFFFFF - ((0xFFFFFFFF - (DEFAULT_TLDR + 1)) / 2)) */
-#define DEFAULT_TMAR	0xFFFFFFEF
-
 /* default TCLR is off state */
 #define DEFAULT_TCLR (GPT_TCLR_PT | GPT_TCLR_TRG_OVFL_MATCH | GPT_TCLR_CE | GPT_TCLR_AR) 
 
@@ -649,8 +639,6 @@ static int __init pwm_init(void)
 		return -1;
 	
 	for (i = 0; i < num_timers; i++) {
-		pwm_dev[i].tldr = DEFAULT_TLDR;
-		pwm_dev[i].tmar = DEFAULT_TMAR;
 		pwm_dev[i].tclr = DEFAULT_TCLR;
 
 		sema_init(&pwm_dev[i].sem, 1);
