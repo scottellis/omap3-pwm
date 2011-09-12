@@ -73,11 +73,25 @@ Example: servo=1
 
 *servo_min* - Minimum value for servo pulse in tenths of microseconds. The default is 10000 representing 1 ms.
 
-Example: servo_min = 12000
+Example: servo_min=12000
 
 *servo_max* - Maximum value for servo pulse in tenths of microseconds. The default is 20000 representing 2 ms.
 
-Example: servo_max = 18000
+Example: servo_max=18000
+
+*servo_start* - Start value for servo pulse in tenths of microseconds. The default is 15000 representing 1.5 ms.
+Electronic speed controllers might prefer a 1 ms pulse. The range is servo_min to servo_max.
+
+Example: servo_start=10000
+
+
+*nomux* - Do not mux the pins for PWM usage. The driver only knows about mux'ing PWM8-11 out the GPIO144-147
+(UART2_CTS, UART2_TX) pads, what the Gumstix uses. If you want to use PWM coming off different pads, then 
+either modify the driver or set this flag and make sure the pads are mux'd in another place, like the 
+bootloader or the Linux board init code. Refer to table 7.4 in the OMAP3 TRM and your board documentation.
+The default is nomux=0 which tells the driver to mux the pins.
+
+Example: nomux=1
 
 
 Here is an example session with the driver.
