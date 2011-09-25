@@ -115,10 +115,9 @@ static int pwm_init_mux(struct pwm_dev *pd)
 		return 0;
 
 	base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
-	if (!base) {
-		printk(KERN_ALERT "pwm_init_mux: ioremap failed\n");
-		return -1;
-	}
+
+	if (!base) 
+		return -ENOMEM;
 
 	pd->old_mux = ioread16(base + pd->mux_offset);
 	iowrite16(PWM_ENABLE_MUX, base + pd->mux_offset);
@@ -137,10 +136,8 @@ static int pwm_restore_mux(struct pwm_dev *pd)
 	if (pd->old_mux) {
 		base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
 	
-		if (!base) {
-			printk(KERN_ALERT "pwm_restore_mux: ioremap failed\n");
-			return -1; 
-		}
+		if (!base)
+			return -ENOMEM; 
 
 		iowrite16(pd->old_mux, base + pd->mux_offset);
 		iounmap(base);	
@@ -218,10 +215,8 @@ static int pwm_use_sys_clk(void)
 		
 	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
 
-	if (!base) {
-		printk(KERN_ALERT "pwm_use_sys_clk: ioremap failed\n");
-		return -1;
-	}
+	if (!base)
+		return -ENOMEM;
 
 	val = ioread32(base + CM_CLKSEL_CORE_OFFSET);
 	val |= mask;
@@ -239,10 +234,8 @@ static int pwm_restore_32k_clk(void)
 
 	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
 
-	if (!base) {
-		printk(KERN_ALERT "pwm_restore_32k_clk: ioremap failed\n");
-		return -1;
-	}
+	if (!base) 
+		return -ENOMEM;
 
 	val = ioread32(base + CM_CLKSEL_CORE_OFFSET);
 	val &= ~(CLKSEL_GPT10 | CLKSEL_GPT11);
