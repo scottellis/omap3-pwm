@@ -425,12 +425,10 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 	if (down_interruptible(&pd->sem)) 
 		return -ERESTARTSYS;
 
-	if (pd->tclr & GPT_TCLR_ST) {
+	if (pd->tclr & GPT_TCLR_ST)
 		len = sprintf(pd->user_buff, "%u\n", pd->current_val); 
-	}
-	else {
+	else
 		len = sprintf(pd->user_buff, "%u\n", pd->current_val); 
-	}
 
 	if (len + 1 < count) 
 		count = len + 1;
