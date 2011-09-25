@@ -148,6 +148,7 @@ static int pwm_restore_mux(struct pwm_dev *pd)
 
 static int pwm_enable_clock(struct pwm_dev *pd)
 {
+	int ret;
 	char id[16];
 
 	if (pd->clk)
@@ -159,16 +160,18 @@ static int pwm_enable_clock(struct pwm_dev *pd)
 
 	if (IS_ERR(pd->clk)) {
 		printk(KERN_ERR "Failed to get %s\n", id);
-		return -1;
+		return PTR_ERR(pd->clk);
 	}
 
 	pd->input_freq = clk_get_rate(pd->clk);
 		
-	if (clk_enable(pd->clk)) {
+	ret = clk_enable(pd->clk);
+
+	if (ret) {
 		clk_put(pd->clk);
 		pd->clk = NULL;
 		printk(KERN_ERR "Error enabling %s\n", id);
-		return -1;
+		return ret;
 	}
 	
 	return 0;	
