@@ -530,21 +530,20 @@ static int __init pwm_init_cdev(struct pwm_dev *pd)
 
 	error = alloc_chrdev_region(&pd->devt, pd->pwm, 1, "pwm");
 
-	if (error < 0) {
-		printk(KERN_ALERT "alloc_chrdev_region fail: %d \n", error);
+	if (error) {
 		pd->devt = 0;
-		return -1;
+		return error;
 	}
 
 	cdev_init(&pd->cdev, &pwm_fops);
 	pd->cdev.owner = THIS_MODULE;
 	
 	error = cdev_add(&pd->cdev, pd->devt, 1);
+
 	if (error) {
-		printk(KERN_ALERT "cdev_add failed: %d\n", error);
 		unregister_chrdev_region(pd->devt, 1);
 		pd->devt = 0;
-		return -1;
+		return error;
 	}	
 
 	return 0;
@@ -552,21 +551,25 @@ static int __init pwm_init_cdev(struct pwm_dev *pd)
 
 static int __init pwm_init_class(struct pwm_dev *pd)
 {
+	int ret;
+
 	if (!pwm_class) {
 		pwm_class = class_create(THIS_MODULE, "pwm");
 
-		if (!pwm_class) {
-			printk(KERN_ALERT "class_create failed\n");
-			return -1;
+		if (IS_ERR(pwm_class)) {
+			ret = PTR_ERR(pwm_class);
+			pwm_class = 0;
+			return ret;
 		}
 	}
 	
 	pd->device = device_create(pwm_class, NULL, pd->devt, NULL, "pwm%d", 
 				MINOR(pd->devt));
 					
-	if (!pd->device) {				
-		printk(KERN_ALERT "device_create(..., pwm) failed\n");					
-		return -1;
+	if (IS_ERR(pd->device)) {
+		ret = PTR_ERR(pd->device);
+		pd->device = 0;				
+		return ret;
 	}
 
 	return 0;
@@ -581,7 +584,8 @@ static void pwm_dev_cleanup(void)
 			device_destroy(pwm_class, pwm_dev[i].devt);
 	}
 	
-	class_destroy(pwm_class);
+	if (pwm_class)
+		class_destroy(pwm_class);
 	
 	for (i = 0; i < num_timers; i++) {
 		cdev_del(&pwm_dev[i].cdev);
