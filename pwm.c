@@ -434,7 +434,6 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 		count = len + 1;
 
 	if (copy_to_user(buff, pd->user_buff, count))  {
-		printk(KERN_ALERT "pwm_read: copy_to_user failed\n");
 		status = -EFAULT;
 	}
 	else {
@@ -460,8 +459,7 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 		return -ERESTARTSYS;
 
 	if (!buff || count < 1) {
-		printk(KERN_ALERT "pwm_write: input check failed\n");
-		status = -EFAULT; 
+		status = -EINVAL; 
 		goto pwm_write_done;
 	}
 	
@@ -473,7 +471,6 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 	memset(pd->user_buff, 0, 16);
 
 	if (copy_from_user(pd->user_buff, buff, len)) {
-		printk(KERN_ALERT "pwm_write: copy_from_user failed\n"); 
 		status = -EFAULT; 	
 		goto pwm_write_done;
 	}
@@ -621,15 +618,12 @@ static int pwm_init_timer_list(void)
 		}
 		
 		if (j == MAX_TIMERS) {
-			printk(KERN_ERR "Invalid timer requested: %d\n", 
-				timers[i]);
-				
+			printk(KERN_ERR "Invalid timer requested: %d\n", timers[i]);				
 			return -1;
 		}
 		
 		if (timer_init[j].used) {
-			printk(KERN_ERR "Timer %d specified more then once\n",
-				timers[i]);
+			printk(KERN_ERR "Timer %d specified more then once\n", timers[i]);
 			return -1;	
 		}
 		
