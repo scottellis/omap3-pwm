@@ -45,21 +45,21 @@
 /* default TCLR is off state */
 #define DEFAULT_TCLR (GPT_TCLR_PT | GPT_TCLR_TRG_OVFL_MATCH | GPT_TCLR_CE | GPT_TCLR_AR) 
 
-static int nomux = 0;
+static int nomux;
 module_param(nomux, int, S_IRUGO);
 MODULE_PARM_DESC(nomux, "Do not mux the PWM pins");
 
-static int frequency = 0;
+static int frequency;
 module_param(frequency, int, S_IRUGO);
 MODULE_PARM_DESC(frequency, "PWM frequency");
 
 #define MAX_TIMERS 4
 static int timers[MAX_TIMERS] = { 8, 9, 10, 11 };
-static int num_timers = 0;
+static int num_timers;
 module_param_array(timers, int, &num_timers, 0000);
 MODULE_PARM_DESC(timers, "List of PWM timers to control");
 
-static int servo = 0;
+static int servo;
 module_param(servo, int, S_IRUGO);
 MODULE_PARM_DESC(servo, "Enable servo mode operation");
 
