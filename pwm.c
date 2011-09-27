@@ -63,15 +63,18 @@ static int servo;
 module_param(servo, int, S_IRUGO);
 MODULE_PARM_DESC(servo, "Enable servo mode operation");
 
-#define SERVO_ABSOLUTE_MIN 10000
-#define SERVO_ABSOLUTE_MAX 20000
+/* Servo values are all tenths of microseconds. */
+#define SERVO_ABSOLUTE_MIN 6000
+#define SERVO_ABSOLUTE_MAX 24000
+#define DEFAULT_SERVO_MIN 10000
+#define DEFAULT_SERVO_MAX 20000
 #define SERVO_CENTER 15000
 
-static int servo_min = SERVO_ABSOLUTE_MIN; 
+static int servo_min = DEFAULT_SERVO_MIN; 
 module_param(servo_min, int, S_IRUGO);
 MODULE_PARM_DESC(servo_min, "Servo min value in tenths of usec, default 10000");
 
-static int servo_max = SERVO_ABSOLUTE_MAX;
+static int servo_max = DEFAULT_SERVO_MAX;
 module_param(servo_max, int, S_IRUGO);
 MODULE_PARM_DESC(servo_max, "Servo max value in tenths of usec, default 20000");
 

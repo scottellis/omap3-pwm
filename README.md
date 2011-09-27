@@ -71,11 +71,11 @@ Example: frequency=1024
 
 Example: servo=1
 
-*servo_min* - Minimum value for servo pulse in tenths of microseconds. The default is 10000 representing 1 ms.
+*servo_min* - Minimum value for servo pulse in tenths of microseconds. The default is 10000 representing 1 ms. The absolute min is 6000 or 0.6 ms.
 
 Example: servo_min=12000
 
-*servo_max* - Maximum value for servo pulse in tenths of microseconds. The default is 20000 representing 2 ms.
+*servo_max* - Maximum value for servo pulse in tenths of microseconds. The default is 20000 representing 2 ms. The absolute max is 24000 or 2.4 ms.
 
 Example: servo_max=18000
 
