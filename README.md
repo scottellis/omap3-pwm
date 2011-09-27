@@ -23,10 +23,13 @@ testing with Beagleboards.
 
 The driver has two modes.
 
-Duty-cycle (default) - generates PWM signals with outputs in the range 0-100 duty cycle.
+Duty-cycle mode (default) - generates PWM signals with outputs in the range 0-100 duty cycle.
 
-Servo mode - runs at 50 Hz, generating pulses from 1-2 ms in duration
+Servo mode - runs at 50 Hz, generating pulses from 1-2 ms in duration by default
 
+
+Build
+-------
 
 There is a ${MACHINE}-source-me.txt file that will set up your environment for
 the cross-compilation. It assumes you are using an OE environment. 
@@ -37,6 +40,16 @@ Follow these steps to build.
 
 	$ git clone git://github.com/scottellis/omap3-pwm.git
 	$ cd omap3-pwm
+
+
+	NOTE: There is a [dm-api] branch that replaces the bit-banging ioremap
+	control of the timers to using the omap_dm_timer API. I only tested
+	on 2.6.39, but it compiles fine on 2.6.34 and 2.6.36. This will get merged
+	into the master branch when I get around to testing an earlier kernel.
+	Feel free to let me know if it works. Checkout the branch like this
+	
+	$ git checkout -b dm-api origin/dm-api
+
 
 
 If you have your OE temp directory in a non-standard location, then export an
