@@ -42,15 +42,6 @@ Follow these steps to build.
 	$ cd omap3-pwm
 
 
-	NOTE: There is a [dm-api] branch that replaces the bit-banging ioremap
-	control of the timers to using the omap_dm_timer API. I only tested
-	on 2.6.39, but it compiles fine on 2.6.34 and 2.6.36. This will get merged
-	into the master branch when I get around to testing an earlier kernel.
-	Feel free to let me know if it works. Checkout the branch like this
-	
-	$ git checkout -b dm-api origin/dm-api
-
-
 
 If you have your OE temp directory in a non-standard location, then export an
 OETMP variable with the path before sourcing the overo-source-me.txt file. 
@@ -84,11 +75,11 @@ Example: frequency=1024
 
 Example: servo=1
 
-*servo_min* - Minimum value for servo pulse in tenths of microseconds. The default is 10000 representing 1 ms. The absolute min is 6000 or 0.6 ms.
+*servo_min* - Minimum value for servo pulse in tenths of microseconds. The default is 10000 representing 1 ms. The absolute min is 5000 or 0.5 ms.
 
 Example: servo_min=12000
 
-*servo_max* - Maximum value for servo pulse in tenths of microseconds. The default is 20000 representing 2 ms. The absolute max is 24000 or 2.4 ms.
+*servo_max* - Maximum value for servo pulse in tenths of microseconds. The default is 20000 representing 2 ms. The absolute max is 25000 or 2.5 ms.
 
 Example: servo_max=18000
 
