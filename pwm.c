@@ -61,15 +61,17 @@ static int servo;
 module_param(servo, int, S_IRUGO);
 MODULE_PARM_DESC(servo, "Enable servo mode operation");
 
-#define SERVO_ABSOLUTE_MIN 10000
-#define SERVO_ABSOLUTE_MAX 20000
+#define SERVO_ABSOLUTE_MIN 5000
+#define SERVO_ABSOLUTE_MAX 25000
+#define SERVO_DEFAULT_MIN 10000
+#define SERVO_DEFAULT_MAX 20000
 #define SERVO_CENTER 15000
 
-static int servo_min = SERVO_ABSOLUTE_MIN; 
+static int servo_min = SERVO_DEFAULT_MIN; 
 module_param(servo_min, int, S_IRUGO);
 MODULE_PARM_DESC(servo_min, "Servo min value in tenths of usec, default 10000");
 
-static int servo_max = SERVO_ABSOLUTE_MAX;
+static int servo_max = SERVO_DEFAULT_MAX;
 module_param(servo_max, int, S_IRUGO);
 MODULE_PARM_DESC(servo_max, "Servo max value in tenths of usec, default 20000");
 
@@ -491,12 +493,14 @@ static int pwm_init_timer_list(void)
 		}
 		
 		if (j == MAX_TIMERS) {
-			printk(KERN_ERR "Invalid timer requested: %d\n", timers[i]);				
+			printk(KERN_ERR "Invalid timer requested: %d\n", 
+				timers[i]);				
 			return -1;
 		}
 		
 		if (timer_init[j].used) {
-			printk(KERN_ERR "Timer %d specified more then once\n", timers[i]);
+			printk(KERN_ERR "Timer %d specified more then once\n", 
+				timers[i]);
 			return -1;	
 		}
 		
