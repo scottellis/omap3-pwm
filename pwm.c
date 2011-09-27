@@ -264,11 +264,7 @@ static int pwm_timer_init(void)
 
 		// make sure we know the source clock frequency
 		fclk = omap_dm_timer_get_fclk(pwm_dev[i].timer);
-		
 		pwm_dev[i].input_freq = clk_get_rate(fclk);
-
-		printk(KERN_INFO "PWM%d fclk = %u\n", pwm_dev[i].id, 
-			pwm_dev[i].input_freq);
 
 		pwm_set_frequency(&pwm_dev[i]);
 	}
