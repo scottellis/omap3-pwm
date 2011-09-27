@@ -42,13 +42,20 @@ Follow these steps to build.
 	$ cd omap3-pwm
 
 
-	NOTE: There is a [dm-api] branch that replaces the bit-banging ioremap
-	control of the timers to using the omap_dm_timer API. I only tested
-	on 2.6.39, but it compiles fine on 2.6.34 and 2.6.36. This will get merged
-	into the master branch when I get around to testing an earlier kernel.
-	Feel free to let me know if it works. Checkout the branch like this
-	
-	$ git checkout -b dm-api origin/dm-api
+
+NOTE:
+
+        There is a [dm-api] branch that replaces the bit-banging ioremap
+        control of the timers to using the omap_dm_timer API. I only tested
+        on 2.6.39 where it is working fine. It compiles on 2.6.34 and 2.6.36,
+        but I didn't do a real test. This will get merged into the [master] 
+        branch when I get around to testing an earlier kernel. Feel free to 
+        let me know if it works. 
+        
+        Checkout the branch like this
+
+        $ git checkout -b dm-api origin/dm-api
+
 
 
 
