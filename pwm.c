@@ -39,11 +39,9 @@
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/clk.h>
+#include <plat/dmtimer.h>
 
 #include "pwm.h"
-
-/* default TCLR is off state */
-#define DEFAULT_TCLR (GPT_TCLR_PT | GPT_TCLR_TRG_OVFL_MATCH | GPT_TCLR_CE | GPT_TCLR_AR) 
 
 static int nomux;
 module_param(nomux, int, S_IRUGO);
@@ -63,18 +61,17 @@ static int servo;
 module_param(servo, int, S_IRUGO);
 MODULE_PARM_DESC(servo, "Enable servo mode operation");
 
-/* Servo values are all tenths of microseconds. */
-#define SERVO_ABSOLUTE_MIN 6000
-#define SERVO_ABSOLUTE_MAX 24000
-#define DEFAULT_SERVO_MIN 10000
-#define DEFAULT_SERVO_MAX 20000
+#define SERVO_ABSOLUTE_MIN 5000
+#define SERVO_ABSOLUTE_MAX 25000
+#define SERVO_DEFAULT_MIN 10000
+#define SERVO_DEFAULT_MAX 20000
 #define SERVO_CENTER 15000
 
-static int servo_min = DEFAULT_SERVO_MIN; 
+static int servo_min = SERVO_DEFAULT_MIN; 
 module_param(servo_min, int, S_IRUGO);
 MODULE_PARM_DESC(servo_min, "Servo min value in tenths of usec, default 10000");
 
-static int servo_max = DEFAULT_SERVO_MAX;
+static int servo_max = SERVO_DEFAULT_MAX;
 module_param(servo_max, int, S_IRUGO);
 MODULE_PARM_DESC(servo_max, "Servo max value in tenths of usec, default 20000");
 
@@ -89,16 +86,13 @@ struct pwm_dev {
 	struct cdev cdev;
 	struct device *device;
 	struct semaphore sem;
-	u32 pwm;
+	int id;
 	u32 mux_offset;
-	u32 phys_base;
-	void __iomem *virt_base;
-	struct clk *clk;
+	struct omap_dm_timer *timer;
 	u32 input_freq;
 	u32 old_mux;
 	u32 tldr;
 	u32 tmar;
-	u32 tclr;
 	u32 num_freqs;
 	u32 current_val;
 	char *user_buff;
@@ -149,151 +143,31 @@ static int pwm_restore_mux(struct pwm_dev *pd)
 	return 0;
 }
 
-static int pwm_enable_clock(struct pwm_dev *pd)
-{
-	int ret;
-	char id[16];
-
-	if (pd->clk)
-		return 0;
-
-	sprintf(id, "gpt%d_fck", pd->pwm);
-	
-	pd->clk = clk_get(NULL, id);
-
-	if (IS_ERR(pd->clk)) {
-		printk(KERN_ERR "Failed to get %s\n", id);
-		return PTR_ERR(pd->clk);
-	}
-
-	pd->input_freq = clk_get_rate(pd->clk);
-		
-	ret = clk_enable(pd->clk);
-
-	if (ret) {
-		clk_put(pd->clk);
-		pd->clk = NULL;
-		printk(KERN_ERR "Error enabling %s\n", id);
-		return ret;
-	}
-	
-	return 0;	
-}
-
-static void pwm_free_clock(struct pwm_dev *pd)
-{
-	if (pd->clk) {
-		clk_disable(pd->clk);
-		clk_put(pd->clk);
-	}
-}
-
-#define CLKSEL_GPT11 0x80
-#define CLKSEL_GPT10 0x40
-/*
- * Changes PWM10 and PWM11 to use the CM_SYS_CLK as a source rather then the
- * CM_32K_CLK. We override the input_freq we got directly from the clk.
- * This sucks and is hackish, but I haven't figured out how to do this through
- * the clock infrastructure. It would nice if I could use something like
- * clk_sel_rate() or omap2_clksel_set_rate(). No joy so far.
- */
-static int pwm_use_sys_clk(void)
-{
-	void __iomem *base;
-	u32 val, mask, i;
-
-	mask = 0;
-	
-	for (i = 0; i < num_timers; i++) {
-		if (pwm_dev[i].pwm == 10) {
-			mask |= CLKSEL_GPT10;
-			pwm_dev[i].input_freq = CLK_SYS_FREQ;
-		}
-		else if (pwm_dev[i].pwm == 11) {
-			mask |= CLKSEL_GPT11;
-			pwm_dev[i].input_freq = CLK_SYS_FREQ;
-		}
-	}
-
-	// nothing to do
-	if (mask == 0)
-		return 0;
-		
-	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
-
-	if (!base)
-		return -ENOMEM;
-
-	val = ioread32(base + CM_CLKSEL_CORE_OFFSET);
-	val |= mask;
-	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
-	iounmap(base);
-
-	return 0;
-}
-
-/* Restore PWM10 and PWM11 to using the CM_32K_CLK */
-static int pwm_restore_32k_clk(void)
-{
-	void __iomem *base;
-	u32 val, i;
-
-	base = ioremap(CLOCK_CONTROL_REG_CM_START, CLOCK_CONTROL_REG_CM_SIZE);
-
-	if (!base) 
-		return -ENOMEM;
-
-	val = ioread32(base + CM_CLKSEL_CORE_OFFSET);
-	val &= ~(CLKSEL_GPT10 | CLKSEL_GPT11);
-	iowrite32(val, base + CM_CLKSEL_CORE_OFFSET);
-	iounmap(base);
-
-	for (i = 0; i < num_timers; i++) {
-		if (pwm_dev[i].pwm == 10 || pwm_dev[i].pwm == 11)
-			pwm_dev[i].input_freq = CLK_32K_FREQ;
-	}
-	
-	return 0;
-}
-
-static int pwm_set_frequency(struct pwm_dev *pd)
+static void pwm_set_frequency(struct pwm_dev *pd)
 {
 	if (frequency > (pd->input_freq / 2)) 
 		frequency = pd->input_freq / 2;
 
 	pd->tldr = 0xFFFFFFFF - ((pd->input_freq / frequency) - 1);
 
+	omap_dm_timer_set_load(pd->timer, 1, pd->tldr);
+
 	pd->num_freqs = 0xFFFFFFFE - pd->tldr;	
 
-	iowrite32(pd->tldr, pd->virt_base + GPT_TLDR);
-
 	// initialize TCRR to TLDR, have to start somewhere
-	iowrite32(pd->tldr, pd->virt_base + GPT_TCRR);
-
-	return 0;
+	omap_dm_timer_write_counter(pd->timer, pd->tldr);
 }
 
-static int pwm_off(struct pwm_dev *pd)
+static void pwm_off(struct pwm_dev *pd)
 {
-	pd->tclr &= ~GPT_TCLR_ST;
-	iowrite32(pd->tclr, pd->virt_base + GPT_TCLR); 
-
+	omap_dm_timer_stop(pd->timer);
 	pd->current_val = 0;
-	
-	return 0;
 }
 
-static int pwm_on(struct pwm_dev *pd)
+static void pwm_on(struct pwm_dev *pd)
 {
-	/* set the duty cycle */
-	iowrite32(pd->tmar, pd->virt_base + GPT_TMAR);
-	
-	/* now turn it on */
-	pd->tclr = ioread32(pd->virt_base + GPT_TCLR);
-	pd->tclr |= GPT_TCLR_ST;
-	iowrite32(pd->tclr, pd->virt_base + GPT_TCLR); 
-	
-	return 0;
+	omap_dm_timer_set_match(pd->timer, 1, pd->tmar);
+	omap_dm_timer_start(pd->timer);
 }
 
 static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle) 
@@ -319,9 +193,12 @@ static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle)
 		
 	pd->tmar = pd->tldr + new_tmar;
 
-	return pwm_on(pd);
+	pwm_on(pd);
+
+	return 0;
 }
 
+#define TENTHS_OF_MICROSEC_PER_SEC	10000000
 static int pwm_set_servo_pulse(struct pwm_dev *pd, u32 tenths_us)
 {
 	u32 new_tmar, factor;
@@ -331,7 +208,7 @@ static int pwm_set_servo_pulse(struct pwm_dev *pd, u32 tenths_us)
 
 	pd->current_val = tenths_us;
 		
-	factor = 10000000 / (frequency * 2);
+	factor = TENTHS_OF_MICROSEC_PER_SEC / (frequency * 2);
 	new_tmar = (tenths_us * (pd->num_freqs / 2)) / factor;
 	
 	if (new_tmar < 1)
@@ -341,64 +218,59 @@ static int pwm_set_servo_pulse(struct pwm_dev *pd, u32 tenths_us)
 		
 	pd->tmar = pd->tldr + new_tmar;
 
-	return pwm_on(pd);
+	pwm_on(pd);
+
+	return 0;
 }
 
 static void pwm_timer_cleanup(void)
 {
 	int i;
-	
-	// since this is called by error handling code, only call this 
-	// function if PWM10 or PWM11 fck is enabled or you might oops
+
 	for (i = 0; i < num_timers; i++) {
-		if ((pwm_dev[i].pwm == 10 || pwm_dev[i].pwm == 11)
-				&& pwm_dev[i].clk) {
-			pwm_restore_32k_clk();
-			break;
+		if (pwm_dev[i].timer) {
+			omap_dm_timer_free(pwm_dev[i].timer);
+			pwm_dev[i].timer = NULL;
 		}
-	}
-	
-	for (i = 0; i < num_timers; i++) {
-		pwm_free_clock(&pwm_dev[i]);
-		pwm_restore_mux(&pwm_dev[i]);	
-		
-		if (pwm_dev[i].virt_base) {
-			iounmap(pwm_dev[i].virt_base);
-			pwm_dev[i].virt_base = NULL;
-		}
+
+		pwm_restore_mux(&pwm_dev[i]);
 	}
 }
 
 static int pwm_timer_init(void)
 {
 	int i;
+	struct clk *fclk;
 
 	for (i = 0; i < num_timers; i++) {
 		if (pwm_init_mux(&pwm_dev[i]))
-			goto timer_init_fail;
-		
-		if (pwm_enable_clock(&pwm_dev[i]))
 			goto timer_init_fail;			
 	}
 
-	// not configurable right now, we always use it
-	if (pwm_use_sys_clk()) 
-		goto timer_init_fail;
-	
 	for (i = 0; i < num_timers; i++) {
-		pwm_dev[i].virt_base = ioremap(pwm_dev[i].phys_base, 
-						GPT_REGS_PAGE_SIZE);
-						
-		if (!pwm_dev[i].virt_base)
+		pwm_dev[i].timer = omap_dm_timer_request_specific(pwm_dev[i].id);
+
+		if (!pwm_dev[i].timer)
 			goto timer_init_fail;
 
-		pwm_off(&pwm_dev[i]);
-		
-		// frequency is a global module param for all timers
-		if (pwm_set_frequency(&pwm_dev[i]))
+		omap_dm_timer_set_pwm(pwm_dev[i].timer,
+				0,	// ~SCPWM low when off
+				1,	// PT pulse toggle modulation
+				OMAP_TIMER_TRIGGER_OVERFLOW_AND_COMPARE);
+
+		if (omap_dm_timer_set_source(pwm_dev[i].timer, 
+						OMAP_TIMER_SRC_SYS_CLK))
 			goto timer_init_fail;
 
-		if (servo)
+		// make sure we know the source clock frequency
+		fclk = omap_dm_timer_get_fclk(pwm_dev[i].timer);
+		pwm_dev[i].input_freq = clk_get_rate(fclk);
+
+		pwm_set_frequency(&pwm_dev[i]);
+	}
+
+	if (servo) {
+		for (i = 0; i < num_timers; i++)
 			pwm_set_servo_pulse(&pwm_dev[i], servo_start);
 	}
 
@@ -428,10 +300,7 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 	if (down_interruptible(&pd->sem)) 
 		return -ERESTARTSYS;
 
-	if (pd->tclr & GPT_TCLR_ST)
-		len = sprintf(pd->user_buff, "%u\n", pd->current_val); 
-	else
-		len = sprintf(pd->user_buff, "%u\n", pd->current_val); 
+	len = sprintf(pd->user_buff, "%u\n", pd->current_val); 
 
 	if (len + 1 < count) 
 		count = len + 1;
@@ -528,7 +397,7 @@ static int __init pwm_init_cdev(struct pwm_dev *pd)
 {
 	int error;
 
-	error = alloc_chrdev_region(&pd->devt, pd->pwm, 1, "pwm");
+	error = alloc_chrdev_region(&pd->devt, pd->id, 1, "pwm");
 
 	if (error) {
 		pd->devt = 0;
@@ -594,17 +463,16 @@ static void pwm_dev_cleanup(void)
 }
 
 struct timer_init {
-	u32 pwm;
+	int id;
 	u32 mux_offset;
-	u32 phys_base;
 	u32 used;
 };
 
 static struct timer_init timer_init[MAX_TIMERS] = {
-	{ 8, GPT8_MUX_OFFSET, PWM8_CTL_BASE, 0 },
-	{ 9, GPT9_MUX_OFFSET, PWM9_CTL_BASE, 0 },
-	{ 10, GPT10_MUX_OFFSET, PWM10_CTL_BASE, 0 },
-	{ 11, GPT11_MUX_OFFSET, PWM11_CTL_BASE, 0 }
+	{ 8, GPT8_MUX_OFFSET, 0 },
+	{ 9, GPT9_MUX_OFFSET, 0 },
+	{ 10, GPT10_MUX_OFFSET, 0 },
+	{ 11, GPT11_MUX_OFFSET, 0 }
 };
 	
 static int pwm_init_timer_list(void)
@@ -616,24 +484,25 @@ static int pwm_init_timer_list(void)
 		
 	for (i = 0; i < num_timers; i++) {
 		for (j = 0; j < MAX_TIMERS; j++) {
-			if (timers[i] == timer_init[j].pwm)
+			if (timers[i] == timer_init[j].id)
 				break;			
 		}
 		
 		if (j == MAX_TIMERS) {
-			printk(KERN_ERR "Invalid timer requested: %d\n", timers[i]);				
+			printk(KERN_ERR "Invalid timer requested: %d\n", 
+				timers[i]);				
 			return -1;
 		}
 		
 		if (timer_init[j].used) {
-			printk(KERN_ERR "Timer %d specified more then once\n", timers[i]);
+			printk(KERN_ERR "Timer %d specified more then once\n", 
+				timers[i]);
 			return -1;	
 		}
 		
 		timer_init[j].used = 1;
-		pwm_dev[i].pwm = timer_init[j].pwm;
+		pwm_dev[i].id = timer_init[j].id;
 		pwm_dev[i].mux_offset = timer_init[j].mux_offset;
-		pwm_dev[i].phys_base = timer_init[j].phys_base;
 	}
 						
 	return 0;			
@@ -647,8 +516,6 @@ static int __init pwm_init(void)
 		return -1;
 	
 	for (i = 0; i < num_timers; i++) {
-		pwm_dev[i].tclr = DEFAULT_TCLR;
-
 		sema_init(&pwm_dev[i].sem, 1);
 
 		if (pwm_init_cdev(&pwm_dev[i]))
@@ -662,7 +529,6 @@ static int __init pwm_init(void)
 		frequency = 50;
 	else if (frequency <= 0)
 		frequency = 1024;
-
 
 	if (servo) {
 		if (servo_min < SERVO_ABSOLUTE_MIN)
