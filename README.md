@@ -61,7 +61,8 @@ Once on the system, use insmod to load using the optional parameters.
 Driver parameters
 
 *timers* - A comma separated list of the timers to use, 8-11. The driver will create
-/dev/pwmXX devices for each timer you enable. The default is all 4 timers.
+/dev/pwmXX devices for each timer you enable. The default is all 4 timers. BeagleBoard-XM
+users want to exclude timer 8. See note below.
 
 Example: timers=8,9,10,11
 
@@ -158,10 +159,14 @@ the standard zero position for servos.
 In servo mode the driver wants settings in tenths of microseconds with the default
 range of 10000 to 20000.
 
+You can pass more then one parameter when you load the driver.
+
+        root@overo:~# insmod pwm.ko servo=1 timers=9,10,11
+
 
 The driver takes care of muxing the output pins correctly for the Overo
 boards and restores the original muxing when it unloads. The default muxing
-by Gumstix for the PWM pins is to be GPIO. 
+by Gumstix for the exposed PWM pins is to be GPIO. 
 
 The driver also switches PWM10 and PWM11 to use a 13MHz clock for the source
 similar to what PWM8 and PWM9 use by default. This is currently not 
@@ -173,12 +178,19 @@ want to use PWM 9 and 10 at the same time you are using an lcd. I haven't tried
 it.
 
 
-BEAGLEBOARD Note: The kernel config option CONFIG_OMAP_RESET_CLOCKS is enabled
-in the default beagleboard defconfigs. You'll get an oops using pwm.ko with
-this enabled. This is a kernel power saving feature. You'll need to disable this 
-config option to use this driver. Below is a sample patch for linux-omap-2.6.32's
-defconfig. Adjust for the kernel you are using. Gumstix users already have this
-turned off in default kernels.
+BeagleBoard-XM Note: The BeagleBoard-XM uses GPIO 147 for USB reset. 
+This is the same pad the driver muxes for PWM8. You need to explicitly pass
+a timers parameter to prevent the driver from muxing PWM8 and disabling USB.
+Timers 9, 10 and 11 can be used.
+
+ 
+General BeagleBoard Note:
+The kernel config option CONFIG_OMAP_RESET_CLOCKS is enabled in the default 
+beagleboard defconfigs. You'll get an oops using pwm.ko with this enabled. 
+This is a kernel power saving feature. You'll need to disable this config 
+option to use this driver. Below is a sample patch for linux-omap-2.6.32's
+defconfig. Adjust for the kernel you are using. Gumstix users already have 
+this turned off in default kernels.
 
 	diff --git a/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig b/recipes/linux/linux-omap-2.6.32/beagleboard/defconfig
 	index cebe1f5..2dad30c 100644
