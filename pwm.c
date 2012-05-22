@@ -93,7 +93,7 @@ struct pwm_dev {
 	u32 old_mux;
 	u32 tldr;
 	u32 tmar;
-	u32 num_freqs;
+	u32 num_settings;
 	u32 current_val;
 	char *user_buff;
 };
@@ -152,7 +152,7 @@ static void pwm_set_frequency(struct pwm_dev *pd)
 
 	omap_dm_timer_set_load(pd->timer, 1, pd->tldr);
 
-	pd->num_freqs = 0xFFFFFFFE - pd->tldr;	
+	pd->num_settings = 0xFFFFFFFE - pd->tldr;	
 
 	omap_dm_timer_enable(pd->timer);
 
@@ -188,12 +188,12 @@ static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle)
 		return 0;
 	}
  
-	new_tmar = (duty_cycle * pd->num_freqs) / 100;
+	new_tmar = (duty_cycle * pd->num_settings) / 100;
 
 	if (new_tmar < 1) 
 		new_tmar = 1;
-	else if (new_tmar > pd->num_freqs)
-		new_tmar = pd->num_freqs;
+	else if (new_tmar > pd->num_settings)
+		new_tmar = pd->num_settings;
 		
 	pd->tmar = pd->tldr + new_tmar;
 
@@ -213,12 +213,12 @@ static int pwm_set_servo_pulse(struct pwm_dev *pd, u32 tenths_us)
 	pd->current_val = tenths_us;
 		
 	factor = TENTHS_OF_MICROSEC_PER_SEC / (frequency * 2);
-	new_tmar = (tenths_us * (pd->num_freqs / 2)) / factor;
+	new_tmar = (tenths_us * (pd->num_settings / 2)) / factor;
 	
 	if (new_tmar < 1)
 		new_tmar = 1;
-	else if (new_tmar > pd->num_freqs)
-		new_tmar = pd->num_freqs;
+	else if (new_tmar > pd->num_settings)
+		new_tmar = pd->num_settings;
 		
 	pd->tmar = pd->tldr + new_tmar;
 
