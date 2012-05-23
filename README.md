@@ -3,6 +3,13 @@
 
 Implements a driver to test the PWM outputs of an OMAP3 based Linux system from userspace.
 
+NOTE
+-------
+
+Kernel 3.2 users should try the [3.2] branch of this repo. There is still a problem with reloading
+the driver, but if you only load it once it appears to be working. See the notes in Issue 3.
+
+
 Developers
 -------
 Scott Ellis, Jack Elston, Curtis Olson
