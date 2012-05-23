@@ -164,7 +164,9 @@ static void pwm_off(struct pwm_dev *pd)
 static void pwm_on(struct pwm_dev *pd)
 {
 	omap_dm_timer_set_match(pd->timer, 1, pd->tmar);
-	omap_dm_timer_start(pd->timer);
+
+	if (pd->current_val == 0)
+		omap_dm_timer_start(pd->timer);
 }
 
 static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle) 
@@ -173,8 +175,6 @@ static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle)
 
 	if (duty_cycle > 100)
 		return -EINVAL;
-
-	pd->current_val = duty_cycle;
 
 	if (duty_cycle == 0) {
 		pwm_off(pd);
@@ -192,6 +192,8 @@ static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle)
 
 	pwm_on(pd);
 
+	pd->current_val = duty_cycle;
+
 	return 0;
 }
 
@@ -203,8 +205,6 @@ static int pwm_set_servo_pulse(struct pwm_dev *pd, u32 tenths_us)
 	if (tenths_us < servo_min || tenths_us > servo_max) 
 		return -EINVAL;
 
-	pd->current_val = tenths_us;
-		
 	factor = TENTHS_OF_MICROSEC_PER_SEC / (frequency * 2);
 	new_tmar = (tenths_us * (pd->num_settings / 2)) / factor;
 	
@@ -216,6 +216,8 @@ static int pwm_set_servo_pulse(struct pwm_dev *pd, u32 tenths_us)
 	pd->tmar = pd->tldr + new_tmar;
 
 	pwm_on(pd);
+
+	pd->current_val = tenths_us;
 
 	return 0;
 }
