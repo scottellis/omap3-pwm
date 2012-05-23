@@ -152,14 +152,7 @@ static void pwm_set_frequency(struct pwm_dev *pd)
 
 	omap_dm_timer_set_load(pd->timer, 1, pd->tldr);
 
-	pd->num_settings = 0xFFFFFFFE - pd->tldr;	
-
-	omap_dm_timer_enable(pd->timer);
-
-	// initialize TCRR to TLDR, have to start somewhere
-	omap_dm_timer_write_counter(pd->timer, pd->tldr);
-
-	omap_dm_timer_disable(pd->timer);
+	pd->num_settings = 0xFFFFFFFE - pd->tldr;
 }
 
 static void pwm_off(struct pwm_dev *pd)
