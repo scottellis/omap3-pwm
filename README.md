@@ -6,8 +6,18 @@ Implements a driver to test the PWM outputs of an OMAP3 based Linux system from 
 NOTE
 -------
 
-Kernel 3.2 users should try the [3.2] branch of this repo. There is still a problem with reloading
-the driver, but if you only load it once it appears to be working. See the notes in Issue 3.
+Kernel 3.2 users there is a problem with reloading the driver. The first load
+is okay and the driver works as described below. If you unload the driver and
+try to load it again it will fail. Still looking into this. See the notes in 
+Issue 3 for more details.
+
+There is also a new warning when you load the driver
+
+"Disabling lock debugging due to kernel taint"
+
+This is a kernel bug fixed in 3.3 with this commit
+
+https://git.kernel.org/?p=linux/kernel/git/tip/tip.git;a=commit;h=9ec84acee1e221d99dc33237bff5e82839d10cc0
 
 
 Developers
