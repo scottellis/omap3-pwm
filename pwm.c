@@ -157,8 +157,10 @@ static void pwm_set_frequency(struct pwm_dev *pd)
 
 static void pwm_off(struct pwm_dev *pd)
 {
-	omap_dm_timer_stop(pd->timer);
-	pd->current_val = 0;
+	if (pd->current_val != 0) {
+		omap_dm_timer_stop(pd->timer);
+		pd->current_val = 0;
+	}
 }
 
 static void pwm_on(struct pwm_dev *pd)
@@ -227,6 +229,8 @@ static void pwm_timer_cleanup(void)
 	int i;
 
 	for (i = 0; i < num_timers; i++) {
+		pwm_off(&pwm_dev[i]);
+
 		if (pwm_dev[i].timer) {
 			omap_dm_timer_free(pwm_dev[i].timer);
 			pwm_dev[i].timer = NULL;
