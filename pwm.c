@@ -69,15 +69,18 @@ MODULE_PARM_DESC(servo, "Enable servo mode operation");
 
 static int servo_min = SERVO_DEFAULT_MIN;
 module_param(servo_min, int, S_IRUGO);
-MODULE_PARM_DESC(servo_min, "Servo min value in tenths of usec, default 10000");
+MODULE_PARM_DESC(servo_min, "Servo min value in tenths of usec," \
+		" default 10000");
 
 static int servo_max = SERVO_DEFAULT_MAX;
 module_param(servo_max, int, S_IRUGO);
-MODULE_PARM_DESC(servo_max, "Servo max value in tenths of usec, default 20000");
+MODULE_PARM_DESC(servo_max, "Servo max value in tenths of usec," \
+		" default 20000");
 
 static int servo_start = SERVO_CENTER;
 module_param(servo_start, int, S_IRUGO);
-MODULE_PARM_DESC(servo_start, "Servo value on startup in tenths of usec, default 15000");
+MODULE_PARM_DESC(servo_start, "Servo value on startup in tenths of usec," \
+		" default 15000");
 
 #define USER_BUFF_SIZE	128
 
@@ -251,7 +254,8 @@ static int pwm_timer_init(void)
 	}
 
 	for (i = 0; i < num_timers; i++) {
-		pwm_dev[i].timer = omap_dm_timer_request_specific(pwm_dev[i].id);
+		pwm_dev[i].timer
+			= omap_dm_timer_request_specific(pwm_dev[i].id);
 
 		if (!pwm_dev[i].timer)
 			goto timer_init_fail;
@@ -556,7 +560,8 @@ static int __init pwm_init(void)
 
 	if (servo) {
 		printk(KERN_INFO
-			"pwm: frequency=%d Hz servo=%d servo_min = %d servo_max = %d\n",
+			"pwm: frequency=%d Hz servo=%d " \
+			"servo_min = %d servo_max = %d\n",
 			frequency, servo, servo_min, servo_max);
 	}
 	else {
