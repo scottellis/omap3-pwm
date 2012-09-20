@@ -27,7 +27,7 @@
  Authors: Scott Ellis, Jack Elston, Curt Olson
 */
 
-#include <linux/init.h> 
+#include <linux/init.h>
 #include <linux/module.h>
 #include <linux/device.h>
 #include <linux/semaphore.h>
@@ -67,7 +67,7 @@ MODULE_PARM_DESC(servo, "Enable servo mode operation");
 #define SERVO_DEFAULT_MAX 20000
 #define SERVO_CENTER 15000
 
-static int servo_min = SERVO_DEFAULT_MIN; 
+static int servo_min = SERVO_DEFAULT_MIN;
 module_param(servo_min, int, S_IRUGO);
 MODULE_PARM_DESC(servo_min, "Servo min value in tenths of usec, default 10000");
 
@@ -113,12 +113,12 @@ static int pwm_init_mux(struct pwm_dev *pd)
 
 	base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
 
-	if (!base) 
+	if (!base)
 		return -ENOMEM;
 
 	pd->old_mux = ioread16(base + pd->mux_offset);
 	iowrite16(PWM_ENABLE_MUX, base + pd->mux_offset);
-	iounmap(base);	
+	iounmap(base);
 
 	return 0;
 }
@@ -132,12 +132,12 @@ static int pwm_restore_mux(struct pwm_dev *pd)
 
 	if (pd->old_mux) {
 		base = ioremap(OMAP34XX_PADCONF_START, OMAP34XX_PADCONF_SIZE);
-	
+
 		if (!base)
-			return -ENOMEM; 
+			return -ENOMEM;
 
 		iowrite16(pd->old_mux, base + pd->mux_offset);
-		iounmap(base);	
+		iounmap(base);
 	}
 
 	return 0;
@@ -145,7 +145,7 @@ static int pwm_restore_mux(struct pwm_dev *pd)
 
 static void pwm_set_frequency(struct pwm_dev *pd)
 {
-	if (frequency > (pd->input_freq / 2)) 
+	if (frequency > (pd->input_freq / 2))
 		frequency = pd->input_freq / 2;
 
 	pd->tldr = 0xFFFFFFFF - ((pd->input_freq / frequency) - 1);
@@ -169,7 +169,7 @@ static void pwm_on(struct pwm_dev *pd)
 		omap_dm_timer_start(pd->timer);
 }
 
-static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle) 
+static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle)
 {
 	u32 new_tmar;
 
@@ -180,14 +180,14 @@ static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle)
 		pwm_off(pd);
 		return 0;
 	}
- 
+
 	new_tmar = (duty_cycle * pd->num_settings) / 100;
 
-	if (new_tmar < 1) 
+	if (new_tmar < 1)
 		new_tmar = 1;
 	else if (new_tmar > pd->num_settings)
 		new_tmar = pd->num_settings;
-		
+
 	pd->tmar = pd->tldr + new_tmar;
 
 	pwm_on(pd);
@@ -201,18 +201,18 @@ static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle)
 static int pwm_set_servo_pulse(struct pwm_dev *pd, u32 tenths_us)
 {
 	u32 new_tmar, factor;
-	
-	if (tenths_us < servo_min || tenths_us > servo_max) 
+
+	if (tenths_us < servo_min || tenths_us > servo_max)
 		return -EINVAL;
 
 	factor = TENTHS_OF_MICROSEC_PER_SEC / (frequency * 2);
 	new_tmar = (tenths_us * (pd->num_settings / 2)) / factor;
-	
+
 	if (new_tmar < 1)
 		new_tmar = 1;
 	else if (new_tmar > pd->num_settings)
 		new_tmar = pd->num_settings;
-		
+
 	pd->tmar = pd->tldr + new_tmar;
 
 	pwm_on(pd);
@@ -243,7 +243,7 @@ static int pwm_timer_init(void)
 
 	for (i = 0; i < num_timers; i++) {
 		if (pwm_init_mux(&pwm_dev[i]))
-			goto timer_init_fail;			
+			goto timer_init_fail;
 	}
 
 	for (i = 0; i < num_timers; i++) {
@@ -257,7 +257,7 @@ static int pwm_timer_init(void)
 				1,	// PT pulse toggle modulation
 				OMAP_TIMER_TRIGGER_OVERFLOW_AND_COMPARE);
 
-		if (omap_dm_timer_set_source(pwm_dev[i].timer, 
+		if (omap_dm_timer_set_source(pwm_dev[i].timer,
 						OMAP_TIMER_SRC_SYS_CLK))
 			goto timer_init_fail;
 
@@ -274,11 +274,11 @@ static int pwm_timer_init(void)
 	}
 
 	return 0;
-	
+
 timer_init_fail:
 
 	pwm_timer_cleanup();
-	
+
 	return -1;
 }
 
@@ -289,19 +289,19 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 	ssize_t status;
 	struct pwm_dev *pd = filp->private_data;
 
-	if (!buff) 
+	if (!buff)
 		return -EFAULT;
 
 	// for user progs like cat that will keep asking forever
-	if (*offp > 0) 
+	if (*offp > 0)
 		return 0;
 
-	if (down_interruptible(&pd->sem)) 
+	if (down_interruptible(&pd->sem))
 		return -ERESTARTSYS;
 
-	len = sprintf(pd->user_buff, "%u\n", pd->current_val); 
+	len = sprintf(pd->user_buff, "%u\n", pd->current_val);
 
-	if (len + 1 < count) 
+	if (len + 1 < count)
 		count = len + 1;
 
 	if (copy_to_user(buff, pd->user_buff, count))  {
@@ -314,10 +314,10 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 
 	up(&pd->sem);
 
-	return status;	
+	return status;
 }
 
-static ssize_t pwm_write(struct file *filp, const char __user *buff, 
+static ssize_t pwm_write(struct file *filp, const char __user *buff,
 			size_t count, loff_t *offp)
 {
 	size_t len;
@@ -325,24 +325,24 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 	ssize_t status = 0;
 
 	struct pwm_dev *pd = filp->private_data;
-	
-	if (down_interruptible(&pd->sem)) 
+
+	if (down_interruptible(&pd->sem))
 		return -ERESTARTSYS;
 
 	if (!buff || count < 1) {
-		status = -EINVAL; 
+		status = -EINVAL;
 		goto pwm_write_done;
 	}
-	
+
 	if (count > 8)
 		len = 8;
 	else
 		len = count;
-		
+
 	memset(pd->user_buff, 0, 16);
 
 	if (copy_from_user(pd->user_buff, buff, len)) {
-		status = -EFAULT; 	
+		status = -EFAULT;
 		goto pwm_write_done;
 	}
 
@@ -361,7 +361,7 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 pwm_write_done:
 
 	up(&pd->sem);
-	
+
 	return status;
 }
 
@@ -371,7 +371,7 @@ static int pwm_open(struct inode *inode, struct file *filp)
 	struct pwm_dev *pd = container_of(inode->i_cdev, struct pwm_dev, cdev);
 	filp->private_data = pd;
 
-	if (down_interruptible(&pd->sem)) 
+	if (down_interruptible(&pd->sem))
 		return -ERESTARTSYS;
 
 	if (!pd->user_buff) {
@@ -382,7 +382,7 @@ static int pwm_open(struct inode *inode, struct file *filp)
 
 	up(&pd->sem);
 
-	return error;	
+	return error;
 }
 
 static struct file_operations pwm_fops = {
@@ -405,14 +405,14 @@ static int __init pwm_init_cdev(struct pwm_dev *pd)
 
 	cdev_init(&pd->cdev, &pwm_fops);
 	pd->cdev.owner = THIS_MODULE;
-	
+
 	error = cdev_add(&pd->cdev, pd->devt, 1);
 
 	if (error) {
 		unregister_chrdev_region(pd->devt, 1);
 		pd->devt = 0;
 		return error;
-	}	
+	}
 
 	return 0;
 }
@@ -430,13 +430,13 @@ static int __init pwm_init_class(struct pwm_dev *pd)
 			return ret;
 		}
 	}
-	
-	pd->device = device_create(pwm_class, NULL, pd->devt, NULL, "pwm%d", 
+
+	pd->device = device_create(pwm_class, NULL, pd->devt, NULL, "pwm%d",
 				MINOR(pd->devt));
-					
+
 	if (IS_ERR(pd->device)) {
 		ret = PTR_ERR(pd->device);
-		pd->device = 0;				
+		pd->device = 0;
 		return ret;
 	}
 
@@ -446,19 +446,19 @@ static int __init pwm_init_class(struct pwm_dev *pd)
 static void pwm_dev_cleanup(void)
 {
 	int i;
-	
+
 	for (i = 0; i < num_timers; i++) {
 		if (pwm_dev[i].device)
 			device_destroy(pwm_class, pwm_dev[i].devt);
 	}
-	
+
 	if (pwm_class)
 		class_destroy(pwm_class);
-	
+
 	for (i = 0; i < num_timers; i++) {
 		cdev_del(&pwm_dev[i].cdev);
 		unregister_chrdev_region(pwm_dev[i].devt, 1);
-	}			
+	}
 }
 
 struct timer_init {
@@ -473,38 +473,38 @@ static struct timer_init timer_init[MAX_TIMERS] = {
 	{ 10, GPT10_MUX_OFFSET, 0 },
 	{ 11, GPT11_MUX_OFFSET, 0 }
 };
-	
+
 static int pwm_init_timer_list(void)
 {
 	int i, j;
-	
+
 	if (num_timers == 0)
 		num_timers = 4;
-		
+
 	for (i = 0; i < num_timers; i++) {
 		for (j = 0; j < MAX_TIMERS; j++) {
 			if (timers[i] == timer_init[j].id)
-				break;			
+				break;
 		}
-		
+
 		if (j == MAX_TIMERS) {
-			printk(KERN_ERR "Invalid timer requested: %d\n", 
-				timers[i]);				
+			printk(KERN_ERR "Invalid timer requested: %d\n",
+				timers[i]);
 			return -1;
 		}
-		
+
 		if (timer_init[j].used) {
-			printk(KERN_ERR "Timer %d specified more then once\n", 
+			printk(KERN_ERR "Timer %d specified more then once\n",
 				timers[i]);
-			return -1;	
+			return -1;
 		}
-		
+
 		timer_init[j].used = 1;
 		pwm_dev[i].id = timer_init[j].id;
 		pwm_dev[i].mux_offset = timer_init[j].mux_offset;
 	}
-						
-	return 0;			
+
+	return 0;
 }
 
 static int __init pwm_init(void)
@@ -513,7 +513,7 @@ static int __init pwm_init(void)
 
 	if (pwm_init_timer_list())
 		return -1;
-	
+
 	for (i = 0; i < num_timers; i++) {
 		sema_init(&pwm_dev[i].sem, 1);
 
@@ -544,14 +544,14 @@ static int __init pwm_init(void)
 		if (servo_start < servo_min)
 			servo_start = servo_min;
 		else if (servo_start > servo_max)
-			servo_start = servo_max; 
+			servo_start = servo_max;
 	}
 
 	if (pwm_timer_init())
 		goto init_fail_2;
 
 	if (servo) {
-		printk(KERN_INFO 
+		printk(KERN_INFO
 			"pwm: frequency=%d Hz servo=%d servo_min = %d servo_max = %d\n",
 			frequency, servo, servo_min, servo_max);
 	}
@@ -559,15 +559,15 @@ static int __init pwm_init(void)
 		printk(KERN_INFO "pwm: frequency=%d Hz  servo=%d\n",
 			frequency, servo);
 	}
-	
+
 	return 0;
-	
-init_fail_2:	
+
+init_fail_2:
 	pwm_timer_cleanup();
-	
-init_fail:	
+
+init_fail:
 	pwm_dev_cleanup();
-	
+
 	return -1;
 }
 module_init(pwm_init);
@@ -575,10 +575,10 @@ module_init(pwm_init);
 static void __exit pwm_exit(void)
 {
 	int i;
-	
+
 	pwm_dev_cleanup();
 	pwm_timer_cleanup();
-	
+
 	for (i = 0; i < num_timers; i++) {
 		if (pwm_dev[i].user_buff)
 			kfree(pwm_dev[i].user_buff);
@@ -588,5 +588,4 @@ module_exit(pwm_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Scott Ellis - Jumpnow");
-MODULE_DESCRIPTION("PWM example for Gumstix Overo"); 
-
+MODULE_DESCRIPTION("PWM example for Gumstix Overo");
