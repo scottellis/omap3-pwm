@@ -82,8 +82,6 @@ module_param(servo_start, int, S_IRUGO);
 MODULE_PARM_DESC(servo_start, "Servo value on startup in tenths of usec," \
 		" default 15000");
 
-#define USER_BUFF_SIZE	128
-
 struct pwm_dev {
 	dev_t devt;
 	struct cdev cdev;
@@ -98,7 +96,6 @@ struct pwm_dev {
 	u32 tmar;
 	u32 num_settings;
 	u32 current_val;
-	char *user_buff;
 };
 
 // only one class
@@ -296,6 +293,7 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 	size_t len;
 	ssize_t status;
 	struct pwm_dev *pd = filp->private_data;
+	char temp[16];
 
 	if (!buff)
 		return -EFAULT;
@@ -307,12 +305,12 @@ static ssize_t pwm_read(struct file *filp, char __user *buff, size_t count,
 	if (down_interruptible(&pd->sem))
 		return -ERESTARTSYS;
 
-	len = sprintf(pd->user_buff, "%u\n", pd->current_val);
+	len = sprintf(temp, "%u\n", pd->current_val);
 
 	if (len + 1 < count)
 		count = len + 1;
 
-	if (copy_to_user(buff, pd->user_buff, count))  {
+	if (copy_to_user(buff, temp, count))  {
 		status = -EFAULT;
 	}
 	else {
@@ -331,6 +329,7 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 	size_t len;
 	u32 val;
 	ssize_t status = 0;
+	char temp[16];
 
 	struct pwm_dev *pd = filp->private_data;
 
@@ -347,14 +346,14 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 	else
 		len = count;
 
-	memset(pd->user_buff, 0, 16);
+	memset(temp, 0, 16);
 
-	if (copy_from_user(pd->user_buff, buff, len)) {
+	if (copy_from_user(temp, buff, len)) {
 		status = -EFAULT;
 		goto pwm_write_done;
 	}
 
-	val = simple_strtoul(pd->user_buff, NULL, 0);
+	val = simple_strtoul(temp, NULL, 0);
 
 	if (servo)
 		status = pwm_set_servo_pulse(pd, val);
@@ -375,22 +374,10 @@ pwm_write_done:
 
 static int pwm_open(struct inode *inode, struct file *filp)
 {
-	int error = 0;
 	struct pwm_dev *pd = container_of(inode->i_cdev, struct pwm_dev, cdev);
 	filp->private_data = pd;
 
-	if (down_interruptible(&pd->sem))
-		return -ERESTARTSYS;
-
-	if (!pd->user_buff) {
-		pd->user_buff = kmalloc(USER_BUFF_SIZE, GFP_KERNEL);
-		if (!pd->user_buff)
-			error = -ENOMEM;
-	}
-
-	up(&pd->sem);
-
-	return error;
+	return 0;
 }
 
 static struct file_operations pwm_fops = {
@@ -583,15 +570,8 @@ module_init(pwm_init);
 
 static void __exit pwm_exit(void)
 {
-	int i;
-
 	pwm_dev_cleanup();
 	pwm_timer_cleanup();
-
-	for (i = 0; i < num_timers; i++) {
-		if (pwm_dev[i].user_buff)
-			kfree(pwm_dev[i].user_buff);
-	}
 }
 module_exit(pwm_exit);
 
