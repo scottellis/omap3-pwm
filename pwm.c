@@ -1,4 +1,12 @@
 /*
+
+ Modified 2012, Jemiah Aitch for Logic Product Development.
+	An IOCTL handler was added for the following features:
+	- A servo mode reset command.
+	- A binary set command to eliminate the overhead
+	  of string processing.
+
+
  Copyright (c) 2010, Scott Ellis
  All rights reserved.
 
@@ -34,6 +42,7 @@
 #include <linux/cdev.h>
 #include <linux/fs.h>
 #include <linux/errno.h>
+#include <linux/ctype.h>
 #include <asm/io.h>
 #include <asm/uaccess.h>
 #include <linux/moduleparam.h>
@@ -42,6 +51,7 @@
 #include <plat/dmtimer.h>
 
 #include "pwm.h"
+#include "pwm_ioctl.h"
 
 static int nomux;
 module_param(nomux, int, S_IRUGO);
@@ -52,10 +62,15 @@ module_param(frequency, int, S_IRUGO);
 MODULE_PARM_DESC(frequency, "PWM frequency");
 
 #define MAX_TIMERS 4
-static int timers[MAX_TIMERS] = { 8, 9, 10, 11 };
-static int num_timers;
-module_param_array(timers, int, &num_timers, 0000);
-MODULE_PARM_DESC(timers, "List of PWM timers to control");
+//static int timers[MAX_TIMERS] = { 8, 9, 10, 11 };
+//static int num_timers;
+//module_param_array(timers, int, &num_timers, 0000);
+//MODULE_PARM_DESC(timers, "List of PWM timers to control");
+static char *timers[MAX_TIMERS];
+static int num_timers = 0;
+module_param_array(timers, charp, &num_timers, S_IRUGO);
+MODULE_PARM_DESC(timers, "List of PWM timers to control with optional mux specification.");
+
 
 static int servo;
 module_param(servo, int, S_IRUGO);
@@ -89,6 +104,7 @@ struct pwm_dev {
 	struct semaphore sem;
 	int id;
 	u32 mux_offset;
+	u16 mux_config;
 	struct omap_dm_timer *timer;
 	u32 input_freq;
 	u32 old_mux;
@@ -117,7 +133,7 @@ static int pwm_init_mux(struct pwm_dev *pd)
 		return -ENOMEM;
 
 	pd->old_mux = ioread16(base + pd->mux_offset);
-	iowrite16(PWM_ENABLE_MUX, base + pd->mux_offset);
+	iowrite16(pd->mux_config, base + pd->mux_offset);
 	iounmap(base);
 
 	return 0;
@@ -380,11 +396,71 @@ static int pwm_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+long pwm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+        int retVal = 0;
+	int newPWMVal;
+	struct pwm_dev *pd = filp->private_data;
+
+        /*
+         * extract the type and number bitfields, and don't decode
+         * wrong cmds: return ENOTTY (inappropriate ioctl) before access_ok()
+         */
+        if (_IOC_TYPE(cmd) != PWM_IOC_MAGIC) return -ENOTTY;
+        if (_IOC_NR(cmd) > PWM_IOC_MAXNR) return -ENOTTY;
+
+        switch(cmd) 
+	{
+        	case PWM_PULSE_RESET:
+			if (servo)
+				retVal = pwm_set_servo_pulse(pd, servo_start);
+
+			// There is currently no defined action for reset when
+			// not in servo mode.
+
+			break;
+
+		case PWM_PULSE_SET:
+			retVal = __get_user(newPWMVal, (int __user *)arg);
+			if (0 == retVal)
+				if (servo)
+					retVal = pwm_set_servo_pulse(pd, newPWMVal);
+				else
+					retVal = pwm_set_duty_cycle(pd, newPWMVal);
+			else
+				retVal = -EINVAL;
+
+			break;
+
+		case PWM_FREQ_SET:
+                        retVal = __get_user(frequency, (int __user *)arg);
+                        if (0 == retVal)
+				pwm_set_frequency(pd);
+			else
+				retVal = -EINVAL;
+                        break;
+
+		case PWM_FREQ_GET:
+			retVal = __put_user(frequency, (int __user *)arg);
+			break;
+
+		default:
+
+			retVal = EINVAL;
+		break;
+	}
+
+	return retVal;
+}
+
+
+
 static struct file_operations pwm_fops = {
 	.owner = THIS_MODULE,
 	.read = pwm_read,
 	.write = pwm_write,
 	.open = pwm_open,
+	.unlocked_ioctl = pwm_ioctl,
 };
 
 static int __init pwm_init_cdev(struct pwm_dev *pd)
@@ -458,45 +534,82 @@ static void pwm_dev_cleanup(void)
 
 struct timer_init {
 	int id;
-	u32 mux_offset;
+	u32 mux_offset[MAX_MUX_OFFSETS];
 	u32 used;
 };
 
 static struct timer_init timer_init[MAX_TIMERS] = {
-	{ 8, GPT8_MUX_OFFSET, 0 },
-	{ 9, GPT9_MUX_OFFSET, 0 },
-	{ 10, GPT10_MUX_OFFSET, 0 },
-	{ 11, GPT11_MUX_OFFSET, 0 }
+	{ 8,  {GPT8_MUX_OFFSET_A,  GPT8_MUX_OFFSET_B},  0 },
+	{ 9,  {GPT9_MUX_OFFSET_A,  GPT9_MUX_OFFSET_B},  0 },
+	{ 10, {GPT10_MUX_OFFSET_A, GPT10_MUX_OFFSET_B}, 0 },
+	{ 11, {GPT11_MUX_OFFSET_A, GPT11_MUX_OFFSET_B}, 0 }
+};
+
+static u16 mux_configs[MAX_MUX_OFFSETS] = {
+	PWM_ENABLE_MUX_A,
+	PWM_ENABLE_MUX_B
 };
 
 static int pwm_init_timer_list(void)
 {
-	int i, j;
+	int i, j, ret, pwmTimer, muxIndex;
+	char muxSet[MUX_SET_INDEX_LEN];
 
 	if (num_timers == 0)
 		num_timers = 4;
 
 	for (i = 0; i < num_timers; i++) {
+
+		// Attempt to scan for the options.
+		// The dangers of sscanf are avoided by specifying how many chars are
+		// read in by the string. Using ...%1s... avoids buffer overflow issues.
+		ret = sscanf(timers[i],"%d%1s", &pwmTimer, muxSet);
+
+		if (ret < 1)  {
+			printk(KERN_ERR "Unrecognized timer request: %s\n",
+                                timers[i]);
+			return -1;
+		}
+
+
+		// Check if the mux specifier was given.
+		if (ret == 2) {
+			muxSet[0] = toupper(muxSet[0]);
+			if ((muxSet[0] < MUX_SET_MIN) || (muxSet[0] > MUX_SET_MAX)) {
+				printk(KERN_ERR "Unrecognized mux set request: %s\n",
+                                	timers[i]);
+				return -1;
+			}
+
+			muxIndex = muxSet[0] - MUX_SET_MIN;
+			
+		}
+		else
+			muxIndex = MUX_SET_DEFAULT;
+
 		for (j = 0; j < MAX_TIMERS; j++) {
-			if (timers[i] == timer_init[j].id)
+			if (pwmTimer == timer_init[j].id)
 				break;
 		}
 
 		if (j == MAX_TIMERS) {
 			printk(KERN_ERR "Invalid timer requested: %d\n",
-				timers[i]);
+				pwmTimer);
 			return -1;
 		}
 
 		if (timer_init[j].used) {
 			printk(KERN_ERR "Timer %d specified more then once\n",
-				timers[i]);
+				pwmTimer);
 			return -1;
 		}
 
 		timer_init[j].used = 1;
 		pwm_dev[i].id = timer_init[j].id;
-		pwm_dev[i].mux_offset = timer_init[j].mux_offset;
+		pwm_dev[i].mux_offset = timer_init[j].mux_offset[muxIndex];
+		pwm_dev[i].mux_config = mux_configs[muxIndex];
+
+		printk("pwmTimer: %d offset: 0x%08X config: %d\n", pwm_dev[i].id, pwm_dev[i].mux_offset+OMAP34XX_PADCONF_START, pwm_dev[i].mux_config);
 	}
 
 	return 0;
@@ -505,6 +618,7 @@ static int pwm_init_timer_list(void)
 static int __init pwm_init(void)
 {
 	int i;
+
 
 	if (pwm_init_timer_list())
 		return -1;
