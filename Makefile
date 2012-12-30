@@ -9,11 +9,9 @@ default:
 ifeq ($(strip $(KERNELDIR)),)
 	$(error "KERNELDIR is undefined!")
 else
+	$(MAKE) -C $(KERNELDIR) scripts
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules 
 endif
-
-install:
-	scp pwm.ko root@192.168.10.106:/home/root
 
 
 clean:
