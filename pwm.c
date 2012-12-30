@@ -38,6 +38,7 @@
 #include <plat/dmtimer.h>
 
 #include "pwm.h"
+#include "pwm_ioctl.h"
 
 static int nomux;
 module_param(nomux, int, S_IRUGO);
@@ -376,11 +377,49 @@ static int pwm_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+static long pwm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	int retval = -ENOTTY;
+	struct pwm_dev *pd = filp->private_data;
+
+	if (_IOC_TYPE(cmd) != PWM_IOC_MAGIC)
+		return -ENOTTY;
+
+	if (_IOC_NR(cmd) > PWM_IOC_MAXNR)
+		return -ENOTTY;
+
+	if (down_interruptible(&pd->sem))
+		return -ERESTARTSYS;
+
+	switch (cmd) {
+        case PWM_PULSE_RESET:
+		if (servo)
+			retval = pwm_set_servo_pulse(pd, servo_start);
+
+		// There is currently no defined action for reset when
+		// not in servo mode.
+		break;
+
+	case PWM_PULSE_SET:
+		if (servo)
+			retval = pwm_set_servo_pulse(pd, arg);
+		else
+			retval = pwm_set_duty_cycle(pd, arg);
+
+		break;
+	}
+
+	up(&pd->sem);
+
+	return retval;
+}
+
 static struct file_operations pwm_fops = {
 	.owner = THIS_MODULE,
 	.read = pwm_read,
 	.write = pwm_write,
 	.open = pwm_open,
+	.unlocked_ioctl = pwm_ioctl,
 };
 
 static int __init pwm_init_cdev(struct pwm_dev *pd)
