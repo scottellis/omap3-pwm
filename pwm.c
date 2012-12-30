@@ -392,7 +392,7 @@ static long pwm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return -ERESTARTSYS;
 
 	switch (cmd) {
-        case PWM_PULSE_RESET:
+	case PWM_PULSE_RESET:
 		if (servo)
 			retval = pwm_set_servo_pulse(pd, servo_start);
 
