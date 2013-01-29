@@ -40,6 +40,8 @@
 #include <linux/slab.h>
 #include <linux/clk.h>
 #include <plat/dmtimer.h>
+#include <linux/kthread.h>
+#include <linux/delay.h>
 
 #include "pwm.h"
 
@@ -67,6 +69,10 @@ MODULE_PARM_DESC(servo, "Enable servo mode operation");
 #define SERVO_DEFAULT_MAX 20000
 #define SERVO_CENTER 15000
 
+static int timeout;
+module_param(timeout, int, S_IRUGO);
+MODULE_PARM_DESC(timeout, "Watchdog timeout in n x 100ms.");
+
 static int servo_min = SERVO_DEFAULT_MIN;
 module_param(servo_min, int, S_IRUGO);
 MODULE_PARM_DESC(servo_min, "Servo min value in tenths of usec," \
@@ -90,6 +96,7 @@ struct pwm_dev {
 	int id;
 	u32 mux_offset;
 	struct omap_dm_timer *timer;
+	u32 timeout;
 	u32 input_freq;
 	u32 old_mux;
 	u32 tldr;
@@ -103,6 +110,8 @@ struct class *pwm_class;
 
 static struct pwm_dev pwm_dev[MAX_TIMERS];
 
+static int pwm_thread_running;
+struct task_struct *pwm_thread;
 
 static int pwm_init_mux(struct pwm_dev *pd)
 {
@@ -360,6 +369,8 @@ static ssize_t pwm_write(struct file *filp, const char __user *buff,
 	else
 		status = pwm_set_duty_cycle(pd, val);
 
+	pd->timeout = 0;
+
 	*offp += count;
 
 	if (!status)
@@ -502,6 +513,40 @@ static int pwm_init_timer_list(void)
 	return 0;
 }
 
+static int pwm_timeout_thread(void *data)
+{
+	int i;
+
+	while(pwm_thread_running) {
+		set_current_state(TASK_RUNNING);
+
+		for (i = 0; i < num_timers; i++) {
+			struct pwm_dev *pd = &pwm_dev[i];
+		
+			if (down_interruptible(&pd->sem))
+				return -ERESTARTSYS;
+			
+			if(pd->timeout > timeout) {
+				if (servo)
+					pwm_set_servo_pulse(pd, servo_min);
+				else
+					pwm_set_duty_cycle(pd, 0);
+			}
+
+			pd->timeout++;
+
+			up(&pd->sem);
+		}
+
+		set_current_state(TASK_INTERRUPTIBLE);
+		msleep(100);
+	}
+
+	do_exit(0);
+
+	return 0;
+}
+
 static int __init pwm_init(void)
 {
 	int i;
@@ -517,6 +562,8 @@ static int __init pwm_init(void)
 
 		if (pwm_init_class(&pwm_dev[i]))
 			goto init_fail;
+		
+		pwm_dev[i].timeout = 0;
 	}
 
 	if (servo)
@@ -556,6 +603,12 @@ static int __init pwm_init(void)
 			frequency, servo);
 	}
 
+	if (timeout > 0)
+	{
+		pwm_thread_running = 1;
+		pwm_thread = kthread_run(pwm_timeout_thread, NULL, "pwm watchdog");
+	}
+
 	return 0;
 
 init_fail_2:
@@ -572,6 +625,11 @@ static void __exit pwm_exit(void)
 {
 	pwm_dev_cleanup();
 	pwm_timer_cleanup();
+	if (timeout > 0)
+	{
+		pwm_thread_running = 0;
+		kthread_stop(pwm_thread);
+	}
 }
 module_exit(pwm_exit);
 
