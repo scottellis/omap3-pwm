@@ -585,10 +585,12 @@ static int __init pwm_init(void)
 			goto init_fail;
 	}
 
-	if (servo)
-		frequency = 50;
-	else if (frequency <= 0)
-		frequency = 1024;
+	if (frequency <= 0) {
+		if (servo)
+			frequency = 50;
+		else
+			frequency = 1024;
+	}
 
 	if (servo) {
 		if (servo_min < SERVO_ABSOLUTE_MIN)
