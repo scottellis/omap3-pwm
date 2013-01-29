@@ -39,6 +39,7 @@
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/clk.h>
+#include <linux/interrupt.h>
 #include <plat/dmtimer.h>
 
 #include "pwm.h"
@@ -82,6 +83,12 @@ module_param(servo_start, int, S_IRUGO);
 MODULE_PARM_DESC(servo_start, "Servo value on startup in tenths of usec," \
 		" default 15000");
 
+static int irq_mode = 0;
+module_param(irq_mode, int, S_IRUGO);
+MODULE_PARM_DESC(irq_mode, "enable interrupt mode," \
+		" default 0");
+
+
 struct pwm_dev {
 	dev_t devt;
 	struct cdev cdev;
@@ -96,6 +103,8 @@ struct pwm_dev {
 	u32 tmar;
 	u32 num_settings;
 	u32 current_val;
+	spinlock_t lock;
+	int irq;
 };
 
 // only one class
@@ -158,6 +167,8 @@ static void pwm_set_frequency(struct pwm_dev *pd)
 static void pwm_off(struct pwm_dev *pd)
 {
 	if (pd->current_val != 0) {
+		if (irq_mode)
+			omap_dm_timer_set_int_enable(pd->timer, 0);
 		omap_dm_timer_stop(pd->timer);
 		pd->current_val = 0;
 	}
@@ -165,10 +176,18 @@ static void pwm_off(struct pwm_dev *pd)
 
 static void pwm_on(struct pwm_dev *pd)
 {
-	omap_dm_timer_set_match(pd->timer, 1, pd->tmar);
+	if (!irq_mode)
+		omap_dm_timer_set_match(pd->timer, 1, pd->tmar);
 
 	if (pd->current_val == 0)
+	{
+		if (irq_mode)
+			omap_dm_timer_set_match(pd->timer, 1, pd->tmar);
 		omap_dm_timer_start(pd->timer);
+	}
+
+	if (irq_mode)
+		omap_dm_timer_set_int_enable(pd->timer, OMAP_TIMER_INT_MATCH);
 }
 
 static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle)
@@ -190,7 +209,9 @@ static int pwm_set_duty_cycle(struct pwm_dev *pd, u32 duty_cycle)
 	else if (new_tmar > pd->num_settings)
 		new_tmar = pd->num_settings;
 
+	spin_lock(&pd->lock);
 	pd->tmar = pd->tldr + new_tmar;
+	spin_unlock(&pd->lock);
 
 	pwm_on(pd);
 
@@ -215,7 +236,9 @@ static int pwm_set_servo_pulse(struct pwm_dev *pd, u32 tenths_us)
 	else if (new_tmar > pd->num_settings)
 		new_tmar = pd->num_settings;
 
+	spin_lock(&pd->lock);
 	pd->tmar = pd->tldr + new_tmar;
+	spin_unlock(&pd->lock);
 
 	pwm_on(pd);
 
@@ -234,10 +257,35 @@ static void pwm_timer_cleanup(void)
 		if (pwm_dev[i].timer) {
 			omap_dm_timer_free(pwm_dev[i].timer);
 			pwm_dev[i].timer = NULL;
+			if (irq_mode)
+				free_irq(pwm_dev[i].irq, &pwm_dev[i]);
 		}
 
 		pwm_restore_mux(&pwm_dev[i]);
 	}
+}
+
+static irqreturn_t match_handler(int irq, void *ptr)
+{
+	/* this handler executes code right after a match event,
+	   thus we are synchronized to the timer domain */
+	u32 val;
+	struct pwm_dev *pd = (struct pwm_dev *)ptr;
+
+	/* read new tmar value: */
+	spin_lock(&pd->lock);
+	val = pd->tmar;
+	spin_unlock(&pd->lock);
+      
+	/* set a new tmar value: */
+	omap_dm_timer_set_match(pd->timer, 1, val);
+
+	/* indicate that match interrupt has been handled: */
+	val = omap_dm_timer_read_status(pd->timer);
+	val |= OMAP_TIMER_INT_MATCH;
+	omap_dm_timer_write_status(pd->timer, val);
+
+	return IRQ_HANDLED;
 }
 
 static int pwm_timer_init(void)
@@ -271,6 +319,16 @@ static int pwm_timer_init(void)
 		pwm_dev[i].input_freq = clk_get_rate(fclk);
 
 		pwm_set_frequency(&pwm_dev[i]);
+		if (irq_mode)
+		{
+			pwm_dev[i].irq = omap_dm_timer_get_irq(pwm_dev[i].timer);
+			if (request_irq(pwm_dev[i].irq, match_handler, IRQF_DISABLED | IRQF_SHARED, "pwm-match", &pwm_dev[i]))
+			{
+				printk(KERN_ERR "request_irq failed (on irq %d)\n", pwm_dev[i].irq);
+				goto timer_init_fail;
+			}
+		}
+
 	}
 
 	if (servo) {
@@ -510,6 +568,7 @@ static int __init pwm_init(void)
 		return -1;
 
 	for (i = 0; i < num_timers; i++) {
+		spin_lock_init(&pwm_dev[i].lock);
 		sema_init(&pwm_dev[i].sem, 1);
 
 		if (pwm_init_cdev(&pwm_dev[i]))
