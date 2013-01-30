@@ -471,9 +471,9 @@ static long pwm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case PWM_PULSE_RESET:
 		if (servo)
 			retval = pwm_set_servo_pulse(pd, servo_start);
+		else
+			retval = pwm_set_duty_cycle(pd, 0);
 
-		// There is currently no defined action for reset when
-		// not in servo mode.
 		break;
 
 	case PWM_PULSE_SET:
