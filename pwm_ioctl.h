@@ -17,18 +17,16 @@
  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 */
 
-#ifndef PWM_H
-#define PWM_H
+#ifndef PWM_IOCTL_H
+#define PWM_IOCTL_H
 
-#define OMAP34XX_PADCONF_START  0x48002030
-#define OMAP34XX_PADCONF_SIZE   0x05cc
+#include <linux/ioctl.h>
 
-#define GPT8_MUX_OFFSET		(0x4800217A - OMAP34XX_PADCONF_START)
-#define GPT9_MUX_OFFSET		(0x48002174 - OMAP34XX_PADCONF_START)
-#define GPT10_MUX_OFFSET	(0x48002176 - OMAP34XX_PADCONF_START)
-#define GPT11_MUX_OFFSET	(0x48002178 - OMAP34XX_PADCONF_START)
+#define PWM_IOC_MAGIC 'P'
 
-#define PWM_ENABLE_MUX		0x0002	/* IDIS | PTD | DIS | M2 */
+#define PWM_PULSE_RESET _IO(PWM_IOC_MAGIC, 0)
+#define PWM_PULSE_SET _IOW(PWM_IOC_MAGIC, 1, int)
 
+#define PWM_IOC_MAXNR 1
 
-#endif /* ifndef PWM_H */
+#endif

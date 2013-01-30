@@ -1,30 +1,26 @@
 /*
- Copyright (c) 2010, Scott Ellis
+ Copyright (c) 2010-2012, Scott Ellis
  All rights reserved.
 
- Redistribution and use in source and binary forms, with or without
- modification, are permitted provided that the following conditions are met:
-	* Redistributions of source code must retain the above copyright
-	  notice, this list of conditions and the following disclaimer.
-	* Redistributions in binary form must reproduce the above copyright
-	  notice, this list of conditions and the following disclaimer in the
-	  documentation and/or other materials provided with the distribution.
-	* Neither the name of the <organization> nor the
-	  names of its contributors may be used to endorse or promote products
-	  derived from this software without specific prior written permission.
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2 of the License, or
+ (at your option) any later version.
 
- THIS SOFTWARE IS PROVIDED BY Scott Ellis ''AS IS'' AND ANY
- EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- DISCLAIMED. IN NO EVENT SHALL Scott Ellis BE LIABLE FOR ANY
- DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ GNU General Public License for more details.
 
- Authors: Scott Ellis, Jack Elston, Curt Olson
+ You should have received a copy of the GNU General Public License
+ along with this program; if not, write to the Free Software
+ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+
+ Contributors:
+   Jack Elston
+   Curt Olson
+   Maximilian Schwerin
+   Jemiah Aitch
 */
 
 #include <linux/init.h>
@@ -45,6 +41,7 @@
 #include <linux/delay.h>
 
 #include "pwm.h"
+#include "pwm_ioctl.h"
 
 static int nomux;
 module_param(nomux, int, S_IRUGO);
@@ -456,11 +453,49 @@ static int pwm_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+static long pwm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	int retval = -ENOTTY;
+	struct pwm_dev *pd = filp->private_data;
+
+	if (_IOC_TYPE(cmd) != PWM_IOC_MAGIC)
+		return -ENOTTY;
+
+	if (_IOC_NR(cmd) > PWM_IOC_MAXNR)
+		return -ENOTTY;
+
+	if (down_interruptible(&pd->sem))
+		return -ERESTARTSYS;
+
+	switch (cmd) {
+	case PWM_PULSE_RESET:
+		if (servo)
+			retval = pwm_set_servo_pulse(pd, servo_start);
+
+		// There is currently no defined action for reset when
+		// not in servo mode.
+		break;
+
+	case PWM_PULSE_SET:
+		if (servo)
+			retval = pwm_set_servo_pulse(pd, arg);
+		else
+			retval = pwm_set_duty_cycle(pd, arg);
+
+		break;
+	}
+
+	up(&pd->sem);
+
+	return retval;
+}
+
 static struct file_operations pwm_fops = {
 	.owner = THIS_MODULE,
 	.read = pwm_read,
 	.write = pwm_write,
 	.open = pwm_open,
+	.unlocked_ioctl = pwm_ioctl,
 };
 
 static int __init pwm_init_cdev(struct pwm_dev *pd)
