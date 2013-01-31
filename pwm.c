@@ -477,6 +477,7 @@ static long pwm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 
 	case PWM_PULSE_SET:
+		pd->timeout = 0;
 		if (servo)
 			retval = pwm_set_servo_pulse(pd, arg);
 		else
