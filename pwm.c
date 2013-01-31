@@ -21,6 +21,7 @@
    Curt Olson
    Maximilian Schwerin
    Jemiah Aitch
+   Tobias Simon
 */
 
 #include <linux/init.h>
@@ -469,6 +470,8 @@ static long pwm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 	case PWM_PULSE_RESET:
+		pd->timeout = 0;
+
 		if (servo)
 			retval = pwm_set_servo_pulse(pd, servo_start);
 		else
@@ -477,6 +480,8 @@ static long pwm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 
 	case PWM_PULSE_SET:
+		pd->timeout = 0;
+
 		if (servo)
 			retval = pwm_set_servo_pulse(pd, arg);
 		else
