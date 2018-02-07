@@ -23,7 +23,7 @@
    Jemiah Aitch
    Tobias Simon
 */
-
+#include <linux/uaccess.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/device.h>
